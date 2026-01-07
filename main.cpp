@@ -50,13 +50,15 @@ typedef struct {
 
 
 enum PacketType : char {
-	CONTROL,
-
 	PLAYER_CONNECTED,
 	PLAYER_SYNC,
-	HIDER_CAUGHT,
+	PLAYER_HIDER_CAUGHT,
 	PLAYER_STATS,
-	PLAYER_DISCONNECTED
+	PLAYER_DISCONNECTED,
+
+	CONTROL_MAP_DATA,
+	CONTROL_GAME_START,
+	CONTROL_GAME_END
 };
 
 #pragma region PACKETS
@@ -76,7 +78,7 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::HIDER_CAUGHT;
+	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
 	enet_uint8 player_id;
 	enet_uint8 caught_hider_id;
 } HiderCaughtPacketData;
@@ -94,29 +96,20 @@ typedef struct {
 	enet_uint8 disconnected_player_id;
 } PlayerDisconnectedPacketData;
 
-enum ControlPacketType : char {
-	MAP_DATA,
-	GAME_START,
-	GAME_END
-};
-
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL;
-	ControlPacketType control_packet_type = ControlPacketType::MAP_DATA;
+	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
 	uint32_t map_data_size;
 } MapDataControlPacketHeader;
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL;
-	ControlPacketType control_packet_type = ControlPacketType::GAME_START;
+	PacketType packet_type = PacketType::CONTROL_GAME_START;
 } GameStartControlPacketData;
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL;
-	ControlPacketType control_packet_type = ControlPacketType::GAME_START;
+	PacketType packet_type = PacketType::CONTROL_GAME_END;
 } GameEndControlPacketData;
 
 #pragma endregion PACKETS
@@ -149,7 +142,7 @@ static inline void HandleReceive(
 		}
 		break;
 
-		case PacketType::HIDER_CAUGHT:
+		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
 			// TODO:
 			// - Check if not seeker: return;
@@ -177,12 +170,6 @@ static inline void HandleReceive(
 
 		default: break;
 	}
-
-	// TODO: Update game state based on received data
-
-	// TODO: Calculate player scoring
-
-	// TODO?: enet_packet_destroy(packet)
 }
 
 
