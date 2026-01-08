@@ -445,7 +445,7 @@ try {
 	}), map_data.end());
 
 
-	if (!enet_initialize()) throw std::runtime_error("Failed to initialize ENet");
+	if (enet_initialize() != 0) throw std::runtime_error("Failed to initialize ENet");
 	auto _cleanup0 = std::experimental::scope_exit(enet_deinitialize);
 
 	ENetAddress address = {0};
