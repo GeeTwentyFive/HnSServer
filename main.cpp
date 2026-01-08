@@ -1,5 +1,6 @@
 #include <vector>
 #include <unordered_map>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -58,8 +59,8 @@ typedef struct {
 
 enum PacketType : char {
 	PLAYER_CONNECTED,
-	PLAYER_READY,
 	PLAYER_SYNC,
+	PLAYER_READY,
 	PLAYER_HIDER_CAUGHT,
 	PLAYER_STATS,
 	PLAYER_DISCONNECTED,
@@ -79,16 +80,16 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::PLAYER_READY;
-	enet_uint8 player_id;
-} PlayerReadyPacketData;
-
-#pragma pack(1)
-typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SYNC;
 	enet_uint8 player_id;
 	PlayerState player_state;
 } PlayerSyncPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_READY;
+	enet_uint8 player_id;
+} PlayerReadyPacketData;
 
 #pragma pack(1)
 typedef struct {
@@ -144,6 +145,7 @@ std::unordered_map<enet_uint8, PlayerStats> player_stats;
 std::string map_data;
 bool game_started = false;
 enet_uint8 current_seeker_id_index = 0;
+std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
 
 static inline void HandleReceive(
@@ -153,8 +155,8 @@ static inline void HandleReceive(
 	PacketType packet_type = *((PacketType*)(packet->data + 0));
 
 	if (
-		packet_type != PacketType::PLAYER_READY &&
 		packet_type != PacketType::PLAYER_SYNC &&
+		packet_type != PacketType::PLAYER_READY &&
 		packet_type != PacketType::PLAYER_HIDER_CAUGHT
 		||
 		player_id != *((enet_uint8*)(
@@ -163,28 +165,6 @@ static inline void HandleReceive(
 	) return;
 
 	switch (packet_type) {
-		case PacketType::PLAYER_READY:
-		{
-			serverside_player_states[player_id].ready = true;
-
-			int ready_players = 0;
-			for (auto const& [_, ss_player_state] : serverside_player_states) {
-				if (ss_player_state.ready) ready_players++;
-			}
-			if (ready_players != player_ids.size()) return;
-
-			game_started = true;
-
-			ControlGameStartPacketData cgsp_data;
-			ENetPacket* game_start_packet = enet_packet_create(
-				&cgsp_data,
-				sizeof(ControlGameStartPacketData),
-				ENET_PACKET_FLAG_RELIABLE
-			);
-			enet_host_broadcast(server, 0, game_start_packet);
-		}
-		break;
-
 		case PacketType::PLAYER_SYNC:
 		{
 			if (
@@ -222,6 +202,29 @@ static inline void HandleReceive(
 		}
 		break;
 
+		case PacketType::PLAYER_READY:
+		{
+			serverside_player_states[player_id].ready = true;
+
+			int ready_players = 0;
+			for (auto const& [_, ss_player_state] : serverside_player_states) {
+				if (ss_player_state.ready) ready_players++;
+			}
+			if (ready_players != player_ids.size()) return;
+
+			current_seeker_timer = std::chrono::steady_clock::now();
+			game_started = true;
+
+			ControlGameStartPacketData cgsp_data;
+			ENetPacket* game_start_packet = enet_packet_create(
+				&cgsp_data,
+				sizeof(ControlGameStartPacketData),
+				ENET_PACKET_FLAG_RELIABLE
+			);
+			enet_host_broadcast(server, 0, game_start_packet);
+		}
+		break;
+
 		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
 			if (!(
@@ -243,7 +246,11 @@ static inline void HandleReceive(
 			if (alive_hiders_left != 0) return;
 
 			if (!player_stats.contains(player_id)) player_stats[player_id] = PlayerStats{};
-			//player_stats[player_id].seek_time = // TODO
+			player_stats[player_id].seek_time = std::chrono::duration<float>(
+				std::chrono::steady_clock::now() - current_seeker_timer
+			).count();
+
+			current_seeker_timer = std::chrono::steady_clock::now();
 
 			if (!player_stats.contains(caught_hider_id)) player_stats[caught_hider_id] = PlayerStats{};
 			player_stats[caught_hider_id].last_alive_rounds++;
@@ -259,7 +266,6 @@ static inline void HandleReceive(
 			//	- increment current_seeker_id to next player
 			//	- set players positions to spawns
 			//	- ^ broadcast all player states to all players (reliable)
-			//	- start seeker timer for seeker
 			//	- set alive for all players and is_seeker for the current_seeker_id player
 			//	- ^ broadcast all player states to all players (reliable)
 
