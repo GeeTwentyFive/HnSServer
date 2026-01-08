@@ -342,6 +342,7 @@ static inline void HandleReceive(
 
 
 int main(int argc, char* argv[]) {
+try {
 	if (argc < 2) {
 		std::cout << "USAGE: <PATH/TO/MAP.json> [PORT]" << std::endl;
 		return 0;
@@ -440,6 +441,7 @@ int main(int argc, char* argv[]) {
 		if (
 			c == ' ' || c == '\n' || c == '\t'
 		) return true;
+		return false;
 	}), map_data.end());
 
 
@@ -530,4 +532,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	return 0;
+} catch (const std::exception& e) {
+	std::cout << "ERROR: " << e.what() << std::endl;
+	exit(1);
+}
 }
