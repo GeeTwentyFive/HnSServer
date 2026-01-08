@@ -376,11 +376,18 @@ int main(int argc, char* argv[]) {
 	bool map_has_errors = false;
 	std::string map_errors("");
 	bool hider_spawn_found = false;
+	int hider_spawn_mapobj_index = 0;
 	bool seeker_spawn_found = false;
+	int seeker_spawn_mapobj_index = 0;
 	sj_Value map_object;
 	while (sj_iter_array(&r, map_objects, &map_object)) {
 		if (map_object.type != SJ_OBJECT) {
-			map_errors += "Non-object found in base array\n";
+			int ln, col;
+			sj_location(&r, &ln, &col);
+			map_errors += std::string("Non-object found in base array at ")
+				+ "line " + std::to_string(ln) + ','
+				+ "col " + std::to_string(col) + '\n'
+			;
 			map_has_errors = true;
 			continue;
 		}
@@ -394,19 +401,18 @@ int main(int argc, char* argv[]) {
 				if (
 					(val.end - val.start) >= sizeof("Hider_Spawn")-1 &&
 					memcmp(val.start, "Hider_Spawn", sizeof("Hider_Spawn")-1) == 0
-				) {
-					hider_spawn_found = true;
-					// TODO: Save into hider_spawn
-				}
+				) hider_spawn_found = true;
 				else if (
 					(val.end - val.start) >= sizeof("Seeker_Spawn")-1 &&
 					memcmp(val.start, "Seeker_Spawn", sizeof("Seeker_Spawn")-1) == 0
-				) {
-					seeker_spawn_found = true;
-					// TODO: Save into seeker_spawn
-				}
+				) seeker_spawn_found = true;
 			}
+
+			if (hider_spawn_found && seeker_spawn_found) break;
 		}
+
+		if (!hider_spawn_found) hider_spawn_mapobj_index++;
+		if (!seeker_spawn_found) seeker_spawn_mapobj_index++;
 	}
 	if (!hider_spawn_found) {
 		map_errors += "Hider_Spawn not found\n";
@@ -415,6 +421,27 @@ int main(int argc, char* argv[]) {
 	if (!seeker_spawn_found) {
 		map_errors += "Seeker_Spawn not found\n";
 		map_has_errors = true;
+	}
+	if (!map_has_errors) {
+		sj_Value key, val;
+
+		r = sj_reader((char*)map_data.c_str(), map_data.size());
+		map_objects = sj_read(&r);
+		for (int i = 0; i < hider_spawn_mapobj_index; i++) {
+			sj_iter_array(&r, map_objects, &map_object);
+		}
+		while (sj_iter_object(&r, map_object, &key, &val)) {
+			// TODO: hider_spawn
+		}
+
+		r = sj_reader((char*)map_data.c_str(), map_data.size());
+		map_objects = sj_read(&r);
+		for (int i = 0; i < seeker_spawn_mapobj_index; i++) {
+			sj_iter_array(&r, map_objects, &map_object);
+		}
+		while (sj_iter_object(&r, map_object, &key, &val)) {
+			// TODO: seeker_spawn
+		}
 	}
 	if (map_has_errors) throw std::runtime_error(
 		std::string("Map ") + map_path + " has errors:\n"
