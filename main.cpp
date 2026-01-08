@@ -153,7 +153,7 @@ std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
 
 static inline void HandleReceive(
-	enet_uint8 player_id,
+	ENetPeer* peer,
 	ENetPacket* packet
 ) {
 	PacketType packet_type = *((PacketType*)(packet->data + 0));
@@ -163,7 +163,7 @@ static inline void HandleReceive(
 		packet_type != PacketType::PLAYER_READY &&
 		packet_type != PacketType::PLAYER_HIDER_CAUGHT
 		||
-		player_id != *((enet_uint8*)(
+		peer->incomingPeerID != *((enet_uint8*)(
 			packet->data + offsetof(PlayerSyncPacketData, player_id)
 		))
 	) return;
@@ -175,21 +175,21 @@ static inline void HandleReceive(
 				std::find(
 					player_ids.begin(),
 					player_ids.end(),
-					player_id
+					peer->incomingPeerID
 				) == player_ids.end()
 			) {
-				player_ids.push_back(player_id);
+				player_ids.push_back(peer->incomingPeerID);
 
-				serverside_player_data[player_id] = ServerPlayerData{};
+				serverside_player_data[peer->incomingPeerID] = ServerPlayerData{};
 
 				std::cout
 				<< "Player "
-				<< player_id
+				<< peer->incomingPeerID
 				<< "connected"
 				<< std::endl;
 
 				PlayerConnectedPacketData pcp_data;
-				pcp_data.connected_player_id = player_id;
+				pcp_data.connected_player_id = peer->incomingPeerID;
 				ENetPacket* player_connected_packet = enet_packet_create(
 					&pcp_data,
 					sizeof(PlayerConnectedPacketData),
@@ -197,10 +197,21 @@ static inline void HandleReceive(
 				);
 				enet_host_broadcast(server, 0, player_connected_packet);
 
-				// TODO: Send map_data
+				char* mdp_data = new char[sizeof(ControlMapDataPacketHeader) + map_data.size()];
+				ControlMapDataPacketHeader mdp_header;
+				mdp_header.map_data_size = map_data.size();
+				memcpy(mdp_data, &mdp_header, sizeof(ControlMapDataPacketHeader));
+				memcpy(mdp_data+sizeof(ControlMapDataPacketHeader), map_data.c_str(), map_data.size());
+				ENetPacket* map_data_packet = enet_packet_create(
+					&mdp_data,
+					sizeof(ControlMapDataPacketHeader) + map_data.size(),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_peer_send(peer, 0, map_data_packet);
+				delete[] mdp_data;
 			}
 
-			player_states[player_id] = *((PlayerState*)(
+			player_states[peer->incomingPeerID] = *((PlayerState*)(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
@@ -210,13 +221,15 @@ static inline void HandleReceive(
 
 		case PacketType::PLAYER_READY:
 		{
-			serverside_player_data[player_id].ready = true;
+			serverside_player_data[peer->incomingPeerID].ready = true;
 
 			int ready_players = 0;
-			for (auto const& [_, ss_player_state] : serverside_player_data) {
-				if (ss_player_state.ready) ready_players++;
+			for (auto const& [_, ss_player_data] : serverside_player_data) {
+				if (ss_player_data.ready) ready_players++;
 			}
 			if (ready_players != player_ids.size()) return;
+
+			// Everyone is ready; start game
 
 			current_seeker_timer = std::chrono::steady_clock::now();
 			game_started = true;
@@ -236,7 +249,7 @@ static inline void HandleReceive(
 		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
 			if (!(
-				player_states[player_id].player_state_flags
+				player_states[peer->incomingPeerID].player_state_flags
 				& PlayerStateFlags::IS_SEEKER
 			)) return;
 
@@ -253,8 +266,10 @@ static inline void HandleReceive(
 			}
 			if (alive_hiders_left != 0) return;
 
-			if (!player_stats.contains(player_id)) player_stats[player_id] = PlayerStats{};
-			player_stats[player_id].seek_time = std::chrono::duration<float>(
+			// Handle stats
+
+			if (!player_stats.contains(peer->incomingPeerID)) player_stats[peer->incomingPeerID] = PlayerStats{};
+			player_stats[peer->incomingPeerID].seek_time = std::chrono::duration<float>(
 				std::chrono::steady_clock::now() - current_seeker_timer
 			).count();
 
@@ -263,6 +278,7 @@ static inline void HandleReceive(
 			if (!player_stats.contains(caught_hider_id)) player_stats[caught_hider_id] = PlayerStats{};
 			player_stats[caught_hider_id].last_alive_rounds++;
 
+			// End game if everyone has been a seeker
 			if (current_seeker_id_index == player_ids.size()-1) {
 				for (auto& [_, player_stat] : player_stats) {
 					player_stat.points = (
@@ -271,7 +287,7 @@ static inline void HandleReceive(
 					);
 
 					PlayerStatsPacketData psp_data;
-					psp_data.player_id = player_id;
+					psp_data.player_id = peer->incomingPeerID;
 					psp_data.player_stats = player_stat;
 					ENetPacket* player_stats_packet = enet_packet_create(
 						&psp_data,
@@ -296,6 +312,7 @@ static inline void HandleReceive(
 
 			current_seeker_id_index++;
 
+			// Advance round
 			for (auto& [player_id, player_state] : player_states) {
 				if (player_id == player_ids[current_seeker_id_index]) {
 					player_state.player_state_flags |= (1 << PlayerStateFlags::IS_SEEKER);
@@ -381,7 +398,7 @@ int main(int argc, char* argv[]) {
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
 					HandleReceive(
-						event.peer->incomingPeerID,
+						event.peer,
 						event.packet
 					);
 				}
