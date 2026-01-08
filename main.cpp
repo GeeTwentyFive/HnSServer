@@ -166,9 +166,7 @@ static inline void HandleReceive(
 	ENetPeer* peer,
 	ENetPacket* packet
 ) {
-	PacketType packet_type = *((PacketType*)(packet->data + 0));
-
-	switch (packet_type) {
+	switch (*((PacketType*)(packet->data + 0))) {
 		case PacketType::PLAYER_SYNC:
 		{
 			if (
