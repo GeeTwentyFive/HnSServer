@@ -21,9 +21,9 @@
 
 #pragma pack(1)
 typedef struct {
-	float x;
-	float y;
-	float z;
+	float x = 0.0;
+	float y = 0.0;
+	float z = 0.0;
 } Vec3;
 
 enum PlayerStateFlags {
@@ -143,7 +143,11 @@ std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data;
 std::unordered_map<enet_uint8, PlayerStats> player_stats;
 
 std::string map_data;
+Vec3 hider_spawn = {}; // TODO
+Vec3 seeker_spawn = {}; // TODO
+
 bool game_started = false;
+
 enet_uint8 current_seeker_id_index = 0;
 std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
@@ -222,6 +226,8 @@ static inline void HandleReceive(
 				ENET_PACKET_FLAG_RELIABLE
 			);
 			enet_host_broadcast(server, 0, game_start_packet);
+
+			enet_packet_destroy(packet);
 		}
 		break;
 
@@ -255,21 +261,41 @@ static inline void HandleReceive(
 			if (!player_stats.contains(caught_hider_id)) player_stats[caught_hider_id] = PlayerStats{};
 			player_stats[caught_hider_id].last_alive_rounds++;
 
-			// TODO:
-			// - if all players have been seekers:
-			//	- calculate points stat for all players
-			//	- PLAYER_STATS (reliable)
-			//	- CONTROL+GAME_END (reliable)
-			//	- enet_host_flush() -> enet_host_service() for 1000ms
-			//	- exit()
-			//- else:
-			//	- increment current_seeker_id to next player
-			//	- set players positions to spawns
-			//	- ^ broadcast all player states to all players (reliable)
-			//	- set alive for all players and is_seeker for the current_seeker_id player
-			//	- ^ broadcast all player states to all players (reliable)
+			if (current_seeker_id_index == player_ids.size()-1) {
+				for (auto& [_, player_stat] : player_stats) {
+					player_stat.points = (
+						(player_stat.seek_time - player_stats.size()-1)
+						+ player_stat.last_alive_rounds
+					);
+				}
 
-			enet_host_broadcast(server, 0, packet);
+				// TODO: PLAYER_STATS (reliable)
+
+				// TODO: CONTROL_GAME_END (reliable)
+
+				enet_host_flush(server);
+
+				exit(0);
+			}
+
+			current_seeker_id_index++;
+
+			for (auto const& [player_id, player_state] : player_states) {
+				if (player_id == player_ids[current_seeker_id_index]) {
+					// TODO: Set IS_SEEKER bit
+					// TODO: Set pos to seeker_spawn
+				}
+				else {
+					// TODO: UNSET IS_SEEKER FOR ALL
+					// TODO: Set pos to hider_spawn
+				}
+
+				// TODO: Set IS_ALIVE bit
+
+				// TODO: Broadcast all player states to all players (reliable)
+			}
+
+			enet_packet_destroy(packet);
 		}
 		break;
 
@@ -321,6 +347,8 @@ int main(int argc, char* argv[]) {
 				{
 					if (game_started) {
 						enet_peer_disconnect(event.peer, 0);
+						enet_host_flush(server);
+						enet_peer_reset(event.peer);
 						continue;
 					}
 				}
