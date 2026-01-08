@@ -366,6 +366,12 @@ int main(int argc, char* argv[]) {
 		std::istreambuf_iterator<char>(map_file_stream),
 		std::istreambuf_iterator<char>()
 	);
+	map_data.erase(std::remove_if(map_data.begin(), map_data.end(), []
+	(unsigned char c){
+		if (
+			c == ' ' || c == '\n' || c == '\t'
+		) return true;
+	}), map_data.end());
 
 	// Map parsing & validation
 	sj_Reader r = sj_reader((char*)map_data.c_str(), map_data.size());
