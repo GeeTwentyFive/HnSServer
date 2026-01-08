@@ -45,6 +45,11 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
+	bool ready = false;
+} PlayerServerState;
+
+#pragma pack(1)
+typedef struct {
 	float seek_time = -1.0;
 	char last_alive_rounds = 0;
 	unsigned char points = 0;
@@ -53,7 +58,7 @@ typedef struct {
 
 enum PacketType : char {
 	PLAYER_CONNECTED,
-	PLAYER_READY, // TODO: Implement
+	PLAYER_READY,
 	PLAYER_SYNC,
 	PLAYER_HIDER_CAUGHT,
 	PLAYER_STATS,
@@ -71,6 +76,12 @@ typedef struct {
 	PacketType packet_type = PacketType::PLAYER_CONNECTED;
 	enet_uint8 connected_player_id;
 } PlayerConnectedPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_READY;
+	enet_uint8 player_id;
+} PlayerReadyPacketData;
 
 #pragma pack(1)
 typedef struct {
@@ -127,10 +138,11 @@ std::vector<enet_uint8> player_ids = []{
 	return v;
 }();
 std::unordered_map<enet_uint8, PlayerState> player_states;
+std::unordered_map<enet_uint8, PlayerServerState> serverside_player_states;
 std::unordered_map<enet_uint8, PlayerStats> player_stats;
 
 std::string map_data;
-bool game_started = false; // TODO: Start game -> set to true
+bool game_started = false;
 enet_uint8 current_seeker_id_index = 0;
 
 
@@ -138,13 +150,43 @@ static inline void HandleReceive(
 	enet_uint8 player_id,
 	ENetPacket* packet
 ) {
-	switch (*((PacketType*)(packet->data + 0))) {
+	PacketType packet_type = *((PacketType*)(packet->data + 0));
+
+	if (
+		packet_type != PacketType::PLAYER_READY &&
+		packet_type != PacketType::PLAYER_SYNC &&
+		packet_type != PacketType::PLAYER_HIDER_CAUGHT
+		||
+		player_id != *((enet_uint8*)(
+			packet->data + offsetof(PlayerSyncPacketData, player_id)
+		))
+	) return;
+
+	switch (packet_type) {
+		case PacketType::PLAYER_READY:
+		{
+			serverside_player_states[player_id].ready = true;
+
+			int ready_players = 0;
+			for (auto const& [_, ss_player_state] : serverside_player_states) {
+				if (ss_player_state.ready) ready_players++;
+			}
+			if (ready_players != player_ids.size()) return;
+
+			game_started = true;
+
+			ControlGameStartPacketData cgsp_data;
+			ENetPacket* game_start_packet = enet_packet_create(
+				&cgsp_data,
+				sizeof(ControlGameStartPacketData),
+				ENET_PACKET_FLAG_RELIABLE
+			);
+			enet_host_broadcast(server, 0, game_start_packet);
+		}
+		break;
+
 		case PacketType::PLAYER_SYNC:
 		{
-			enet_uint8 player_id = *((enet_uint8*)(
-				packet->data + offsetof(PlayerSyncPacketData, player_id)
-			));
-
 			if (
 				std::find(
 					player_ids.begin(),
@@ -153,6 +195,8 @@ static inline void HandleReceive(
 				) == player_ids.end()
 			) {
 				player_ids.push_back(player_id);
+
+				serverside_player_states[player_id] = PlayerServerState{};
 
 				std::cout
 				<< "Player "
@@ -180,10 +224,6 @@ static inline void HandleReceive(
 
 		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
-			enet_uint8 player_id = *((enet_uint8*)(
-				packet->data + offsetof(PlayerHiderCaughtPacketData, player_id)
-			));
-
 			if (!(
 				player_states[player_id].player_state_flags
 				& PlayerStateFlags::IS_SEEKER
@@ -219,6 +259,7 @@ static inline void HandleReceive(
 			//	- increment current_seeker_id to next player
 			//	- set players positions to spawns
 			//	- ^ broadcast all player states to all players (reliable)
+			//	- start seeker timer for seeker
 			//	- set alive for all players and is_seeker for the current_seeker_id player
 			//	- ^ broadcast all player states to all players (reliable)
 
