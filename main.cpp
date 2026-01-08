@@ -47,7 +47,7 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
 	bool ready = false;
-} PlayerServerState;
+} ServerPlayerData;
 
 #pragma pack(1)
 typedef struct {
@@ -139,7 +139,7 @@ std::vector<enet_uint8> player_ids = []{
 	return v;
 }();
 std::unordered_map<enet_uint8, PlayerState> player_states;
-std::unordered_map<enet_uint8, PlayerServerState> serverside_player_states;
+std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data;
 std::unordered_map<enet_uint8, PlayerStats> player_stats;
 
 std::string map_data;
@@ -176,7 +176,7 @@ static inline void HandleReceive(
 			) {
 				player_ids.push_back(player_id);
 
-				serverside_player_states[player_id] = PlayerServerState{};
+				serverside_player_data[player_id] = ServerPlayerData{};
 
 				std::cout
 				<< "Player "
@@ -204,10 +204,10 @@ static inline void HandleReceive(
 
 		case PacketType::PLAYER_READY:
 		{
-			serverside_player_states[player_id].ready = true;
+			serverside_player_data[player_id].ready = true;
 
 			int ready_players = 0;
-			for (auto const& [_, ss_player_state] : serverside_player_states) {
+			for (auto const& [_, ss_player_state] : serverside_player_data) {
 				if (ss_player_state.ready) ready_players++;
 			}
 			if (ready_players != player_ids.size()) return;
