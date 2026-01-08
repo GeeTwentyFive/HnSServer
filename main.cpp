@@ -1,14 +1,16 @@
 #include <unordered_map>
 #include <iostream>
 #include <string>
+#include <fstream>
 #include <experimental/scope>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 #include <thread>
 
 #define ENET_IMPLEMENTATION
 #include "libs/enet.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 
 #define DEFAULT_PORT 55555
@@ -182,7 +184,14 @@ int main(int argc, char* argv[]) {
 	std::string map_path = argv[1];
 	int port = (argc >= 3) ? std::stoi(argv[2]) : DEFAULT_PORT;
 
-	// TODO: Load map data from file
+	std::ifstream map_file_stream(map_path);
+	map_file_stream.seekg(0, std::ios::end);
+	map_data.reserve(map_file_stream.tellg());
+	map_file_stream.seekg(0, std::ios::beg);
+	map_data.assign(
+		std::istreambuf_iterator<char>(map_file_stream),
+		std::istreambuf_iterator<char>()
+	);
 
 	if (!enet_initialize()) throw std::runtime_error("Failed to initialize ENet");
 	auto _cleanup0 = std::experimental::scope_exit(enet_deinitialize);
