@@ -37,7 +37,7 @@ enum PlayerStateFlags {
 
 #pragma pack(1)
 typedef struct {
-	Vec3 pos;
+	Vec3 position;
 	float yaw;
 	float pitch;
 	char player_state_flags; // PlayerStateFlags bitmask
@@ -196,6 +196,8 @@ static inline void HandleReceive(
 					ENET_PACKET_FLAG_RELIABLE
 				);
 				enet_host_broadcast(server, 0, player_connected_packet);
+
+				// TODO: Send map_data
 			}
 
 			player_states[player_id] = *((PlayerState*)(
@@ -267,11 +269,25 @@ static inline void HandleReceive(
 						(player_stat.seek_time - player_stats.size()-1)
 						+ player_stat.last_alive_rounds
 					);
+
+					PlayerStatsPacketData psp_data;
+					psp_data.player_id = player_id;
+					psp_data.player_stats = player_stat;
+					ENetPacket* player_stats_packet = enet_packet_create(
+						&psp_data,
+						sizeof(PlayerStatsPacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					enet_host_broadcast(server, 0, player_stats_packet);
 				}
 
-				// TODO: PLAYER_STATS (reliable)
-
-				// TODO: CONTROL_GAME_END (reliable)
+				ControlGameEndPacketData cgp_data;
+				ENetPacket* control_game_end_packet = enet_packet_create(
+					&cgp_data,
+					sizeof(ControlGameEndPacketData),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_host_broadcast(server, 0, control_game_end_packet);
 
 				enet_host_flush(server);
 
@@ -280,19 +296,27 @@ static inline void HandleReceive(
 
 			current_seeker_id_index++;
 
-			for (auto const& [player_id, player_state] : player_states) {
+			for (auto& [player_id, player_state] : player_states) {
 				if (player_id == player_ids[current_seeker_id_index]) {
-					// TODO: Set IS_SEEKER bit
-					// TODO: Set pos to seeker_spawn
+					player_state.player_state_flags |= (1 << PlayerStateFlags::IS_SEEKER);
+					player_state.position = seeker_spawn;
 				}
 				else {
-					// TODO: UNSET IS_SEEKER FOR ALL
-					// TODO: Set pos to hider_spawn
+					player_state.player_state_flags &= ~(1 << PlayerStateFlags::IS_SEEKER);
+					player_state.position = hider_spawn;
 				}
 
-				// TODO: Set IS_ALIVE bit
+				player_state.player_state_flags |= (1 << PlayerStateFlags::ALIVE);
 
-				// TODO: Broadcast all player states to all players (reliable)
+				PlayerSyncPacketData psp_data;
+				psp_data.player_id = player_id;
+				psp_data.player_state = player_state;
+				ENetPacket* player_state_packet = enet_packet_create(
+					&psp_data,
+					sizeof(PlayerSyncPacketData),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_host_broadcast(server, 0, player_state_packet);
 			}
 
 			enet_packet_destroy(packet);
