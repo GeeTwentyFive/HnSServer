@@ -1,3 +1,4 @@
+#include <vector>
 #include <unordered_map>
 #include <iostream>
 #include <string>
@@ -30,8 +31,7 @@ enum PlayerStateFlags {
 	JUMPED = 2,
 	WALLJUMPED = 4,
 	SLIDING = 8,
-	HOOKED = 16,
-	FLASHLIGHT = 32
+	FLASHLIGHT = 16
 };
 
 #pragma pack(1)
@@ -45,14 +45,15 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	float seek_time;
-	char last_alive_rounds;
-	unsigned char points;
+	float seek_time = -1.0;
+	char last_alive_rounds = 0;
+	unsigned char points = 0;
 } PlayerStats;
 
 
 enum PacketType : char {
 	PLAYER_CONNECTED,
+	PLAYER_READY, // TODO: Implement
 	PLAYER_SYNC,
 	PLAYER_HIDER_CAUGHT,
 	PLAYER_STATS,
@@ -83,7 +84,7 @@ typedef struct {
 	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
 	enet_uint8 player_id;
 	enet_uint8 caught_hider_id;
-} HiderCaughtPacketData;
+} PlayerHiderCaughtPacketData;
 
 #pragma pack(1)
 typedef struct {
@@ -98,32 +99,39 @@ typedef struct {
 	enet_uint8 disconnected_player_id;
 } PlayerDisconnectedPacketData;
 
+
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
 	uint32_t map_data_size;
-} MapDataControlPacketHeader;
+} ControlMapDataPacketHeader;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_GAME_START;
-} GameStartControlPacketData;
+} ControlGameStartPacketData;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_GAME_END;
-} GameEndControlPacketData;
+} ControlGameEndPacketData;
 
 #pragma endregion PACKETS
 
 
 ENetHost* server;
 
+std::vector<enet_uint8> player_ids = []{
+	std::vector<enet_uint8> v;
+	v.reserve(MAX_PLAYERS);
+	return v;
+}();
 std::unordered_map<enet_uint8, PlayerState> player_states;
 std::unordered_map<enet_uint8, PlayerStats> player_stats;
 
 std::string map_data;
-enet_uint8 current_seeker_id = -1;
+bool game_started = false; // TODO: Start game -> set to true
+enet_uint8 current_seeker_id_index = 0;
 
 
 static inline void HandleReceive(
@@ -136,6 +144,32 @@ static inline void HandleReceive(
 			enet_uint8 player_id = *((enet_uint8*)(
 				packet->data + offsetof(PlayerSyncPacketData, player_id)
 			));
+
+			if (
+				std::find(
+					player_ids.begin(),
+					player_ids.end(),
+					player_id
+				) == player_ids.end()
+			) {
+				player_ids.push_back(player_id);
+
+				std::cout
+				<< "Player "
+				<< player_id
+				<< "connected"
+				<< std::endl;
+
+				PlayerConnectedPacketData pcp_data;
+				pcp_data.connected_player_id = player_id;
+				ENetPacket* player_connected_packet = enet_packet_create(
+					&pcp_data,
+					sizeof(PlayerConnectedPacketData),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_host_broadcast(server, 0, player_connected_packet);
+			}
+
 			player_states[player_id] = *((PlayerState*)(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
@@ -146,25 +180,47 @@ static inline void HandleReceive(
 
 		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
+			enet_uint8 player_id = *((enet_uint8*)(
+				packet->data + offsetof(PlayerHiderCaughtPacketData, player_id)
+			));
+
+			if (!(
+				player_states[player_id].player_state_flags
+				& PlayerStateFlags::IS_SEEKER
+			)) return;
+
+			enet_uint8 caught_hider_id = *((enet_uint8*)(
+				packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
+			));
+
+			player_states[caught_hider_id].player_state_flags &= ~(1 << PlayerStateFlags::ALIVE);
+
+			int alive_hiders_left = 0;
+			for (auto const& [_, player_state] : player_states) {
+				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
+				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
+			}
+			if (alive_hiders_left != 0) return;
+
+			if (!player_stats.contains(player_id)) player_stats[player_id] = PlayerStats{};
+			//player_stats[player_id].seek_time = // TODO
+
+			if (!player_stats.contains(caught_hider_id)) player_stats[caught_hider_id] = PlayerStats{};
+			player_stats[caught_hider_id].last_alive_rounds++;
+
 			// TODO:
-			// - Check if not seeker: return;
-			// - if one hider left:
-			//	- set seeker's seek_time stat
-			//	- increment caught hider's last_alive_rounds stat
-			//	- if all players have been seekers:
-			//		- calculate points stat for all players
-			//		- PLAYER_STATS (reliable)
-			//		- CONTROL+GAME_END (reliable)
-			//		- enet_host_flush() -> enet_host_service() for 1000ms
-			//		- exit()
-			//	- else:
-			//		- increment current_seeker_id to next player
-			//		- set players positions to spawns
-			//		- ^ broadcast all player states to all players (reliable)
-			//		- set alive for all players and is_seeker for the current_seeker_id player
-			//		- ^ broadcast all player states to all players (reliable)
-			// - else:
-			//	- set caught hider's ALIVE state flag to 0
+			// - if all players have been seekers:
+			//	- calculate points stat for all players
+			//	- PLAYER_STATS (reliable)
+			//	- CONTROL+GAME_END (reliable)
+			//	- enet_host_flush() -> enet_host_service() for 1000ms
+			//	- exit()
+			//- else:
+			//	- increment current_seeker_id to next player
+			//	- set players positions to spawns
+			//	- ^ broadcast all player states to all players (reliable)
+			//	- set alive for all players and is_seeker for the current_seeker_id player
+			//	- ^ broadcast all player states to all players (reliable)
 
 			enet_host_broadcast(server, 0, packet);
 		}
@@ -201,13 +257,13 @@ int main(int argc, char* argv[]) {
 	address.port = port;
 	server = enet_host_create(&address, MAX_PLAYERS, 1, 0, 0);
 	if (server == nullptr) throw std::runtime_error("Failed to create ENet server");
-	auto _cleanup1 = std::experimental::scope_exit([](){enet_host_destroy(server);});
+	auto _cleanup1 = std::experimental::scope_exit([]{enet_host_destroy(server);});
 
 	std::cout << "Server started on port " << port << std::endl;
 
 	#ifdef _WIN32
 	timeBeginPeriod(1);
-	auto _cleanup_windows = std::experimental::scope_exit([](){timeEndPeriod(1);});
+	auto _cleanup_windows = std::experimental::scope_exit([]{timeEndPeriod(1);});
 	#endif
 
 	ENetEvent event;
@@ -216,20 +272,10 @@ int main(int argc, char* argv[]) {
 			switch (event.type) {
 				case ENET_EVENT_TYPE_CONNECT:
 				{
-					std::cout
-					<< "Client "
-					<< event.peer->incomingPeerID
-					<< "connected"
-					<< std::endl;
-
-					PlayerConnectedPacketData pcp_data;
-					pcp_data.connected_player_id = event.peer->incomingPeerID;
-					ENetPacket* player_connected_packet = enet_packet_create(
-						&pcp_data,
-						sizeof(PlayerConnectedPacketData),
-						ENET_PACKET_FLAG_RELIABLE
-					);
-					enet_host_broadcast(server, 0, player_connected_packet);
+					if (game_started) {
+						enet_peer_disconnect(event.peer, 0);
+						continue;
+					}
 				}
 				break;
 
@@ -245,13 +291,29 @@ int main(int argc, char* argv[]) {
 				case ENET_EVENT_TYPE_DISCONNECT:
 				case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
 				{
+					if (
+						std::find(
+							player_ids.begin(),
+							player_ids.end(),
+							event.peer->incomingPeerID
+						) == player_ids.end()
+					) continue;
+
 					std::cout
-					<< "Client "
+					<< "Player "
 					<< event.peer->incomingPeerID
 					<< "disconnected"
 					<< std::endl;
 
 					player_states.erase(event.peer->incomingPeerID);
+					player_ids.erase(
+						std::remove(
+							player_ids.begin(),
+							player_ids.end(),
+							event.peer->incomingPeerID
+						),
+						player_ids.end()
+					);
 
 					PlayerDisconnectedPacketData pdp_data;
 					pdp_data.disconnected_player_id = event.peer->incomingPeerID;
