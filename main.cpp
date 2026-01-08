@@ -7,9 +7,7 @@
 #include <experimental/scope>
 #include <thread>
 
-#define SJ_IMPL
-#include "libs/sj.h"
-
+#include "libs/json.hpp"
 #define ENET_IMPLEMENTATION
 #include "libs/enet.h"
 
@@ -360,59 +358,68 @@ int main(int argc, char* argv[]) {
 		std::istreambuf_iterator<char>(map_file_stream),
 		std::istreambuf_iterator<char>()
 	);
-	map_data.erase(std::remove_if(map_data.begin(), map_data.end(), []
-	(unsigned char c){
-		if (
-			c == ' ' || c == '\n' || c == '\t'
-		) return true;
-	}), map_data.end());
 
 	// Map parsing & validation
-	sj_Reader r = sj_reader((char*)map_data.c_str(), map_data.size());
-	sj_Value map_objects = sj_read(&r);
-	if (map_objects.type != SJ_ARRAY) throw std::runtime_error(
-		std::string("Provided map ") + map_path + " is invalid"
+	if (!nlohmann::json::accept(map_data)) throw std::runtime_error(
+		std::string("Map ") + map_path + " is not valid JSON"
 	);
 	bool map_has_errors = false;
 	std::string map_errors("");
 	bool hider_spawn_found = false;
-	int hider_spawn_mapobj_index = 0;
 	bool seeker_spawn_found = false;
-	int seeker_spawn_mapobj_index = 0;
-	sj_Value map_object;
-	while (sj_iter_array(&r, map_objects, &map_object)) {
-		if (map_object.type != SJ_OBJECT) {
-			int ln, col;
-			sj_location(&r, &ln, &col);
-			map_errors += std::string("Non-object found in base array at ")
-				+ "line " + std::to_string(ln) + ','
-				+ "col " + std::to_string(col) + '\n'
-			;
+	nlohmann::json _map_data = nlohmann::json::parse(map_data);
+	if (!_map_data.is_array()) throw std::runtime_error(
+		std::string("Map ") + map_path + " root is not JSON array"
+	);
+	int map_obj_idx = -1;
+	for (
+		auto map_obj = _map_data.begin();
+		map_obj != _map_data.end();
+		map_obj++
+	) {
+		map_obj_idx++;
+
+		if (!(*map_obj).is_object()) {
+			map_errors += (
+				"Non-object found in root array at index "
+				+ std::to_string(map_obj_idx)
+				+ '\n'
+			);
 			map_has_errors = true;
 			continue;
 		}
 
-		sj_Value key, val;
-		while (sj_iter_object(&r, map_object, &key, &val)) {
-			if (
-				(key.end - key.start) == sizeof("type")-1 &&
-				memcmp(key.start, "type", sizeof("type")-1) == 0
-			) {
-				if (
-					(val.end - val.start) >= sizeof("Hider_Spawn")-1 &&
-					memcmp(val.start, "Hider_Spawn", sizeof("Hider_Spawn")-1) == 0
-				) hider_spawn_found = true;
-				else if (
-					(val.end - val.start) >= sizeof("Seeker_Spawn")-1 &&
-					memcmp(val.start, "Seeker_Spawn", sizeof("Seeker_Spawn")-1) == 0
-				) seeker_spawn_found = true;
-			}
-
-			if (hider_spawn_found && seeker_spawn_found) break;
+		if (
+			!(*map_obj).contains("data") ||
+			!(*map_obj).contains("pos") ||
+			!(*map_obj).contains("rot") ||
+			!(*map_obj).contains("scale") ||
+			!(*map_obj).contains("type")
+		) {
+			map_errors += (
+				"Object in root array at index "
+				+ std::to_string(map_obj_idx)
+				+ " is invalid"
+				+ '\n'
+			);
+			map_has_errors = true;
+			continue;
 		}
 
-		if (!hider_spawn_found) hider_spawn_mapobj_index++;
-		if (!seeker_spawn_found) seeker_spawn_mapobj_index++;
+		if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Hider")) {
+			hider_spawn_found = true;
+
+			hider_spawn.x = (*map_obj)["pos"][0].get<float>();
+			hider_spawn.y = (*map_obj)["pos"][1].get<float>();
+			hider_spawn.z = (*map_obj)["pos"][2].get<float>();
+		}
+		else if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Seeker")) {
+			seeker_spawn_found = true;
+
+			seeker_spawn.x = (*map_obj)["pos"][0].get<float>();
+			seeker_spawn.y = (*map_obj)["pos"][1].get<float>();
+			seeker_spawn.z = (*map_obj)["pos"][2].get<float>();
+		}
 	}
 	if (!hider_spawn_found) {
 		map_errors += "Hider_Spawn not found\n";
@@ -422,31 +429,19 @@ int main(int argc, char* argv[]) {
 		map_errors += "Seeker_Spawn not found\n";
 		map_has_errors = true;
 	}
-	if (!map_has_errors) {
-		sj_Value key, val;
-
-		r = sj_reader((char*)map_data.c_str(), map_data.size());
-		map_objects = sj_read(&r);
-		for (int i = 0; i < hider_spawn_mapobj_index; i++) {
-			sj_iter_array(&r, map_objects, &map_object);
-		}
-		while (sj_iter_object(&r, map_object, &key, &val)) {
-			// TODO: hider_spawn
-		}
-
-		r = sj_reader((char*)map_data.c_str(), map_data.size());
-		map_objects = sj_read(&r);
-		for (int i = 0; i < seeker_spawn_mapobj_index; i++) {
-			sj_iter_array(&r, map_objects, &map_object);
-		}
-		while (sj_iter_object(&r, map_object, &key, &val)) {
-			// TODO: seeker_spawn
-		}
-	}
 	if (map_has_errors) throw std::runtime_error(
 		std::string("Map ") + map_path + " has errors:\n"
 		+ map_errors
 	);
+
+	// Optimize map_data for network transfer
+	map_data.erase(std::remove_if(map_data.begin(), map_data.end(), []
+	(unsigned char c){
+		if (
+			c == ' ' || c == '\n' || c == '\t'
+		) return true;
+	}), map_data.end());
+
 
 	if (!enet_initialize()) throw std::runtime_error("Failed to initialize ENet");
 	auto _cleanup0 = std::experimental::scope_exit(enet_deinitialize);
