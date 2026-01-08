@@ -7,6 +7,9 @@
 #include <experimental/scope>
 #include <thread>
 
+#define SJ_IMPL
+#include "libs/sj.h"
+
 #define ENET_IMPLEMENTATION
 #include "libs/enet.h"
 
@@ -65,6 +68,7 @@ enum PacketType : char {
 	PLAYER_STATS,
 	PLAYER_DISCONNECTED,
 
+	// Server -> Client control packets
 	CONTROL_MAP_DATA,
 	CONTROL_GAME_START,
 	CONTROL_GAME_END
@@ -143,8 +147,8 @@ std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data;
 std::unordered_map<enet_uint8, PlayerStats> player_stats;
 
 std::string map_data;
-Vec3 hider_spawn = {}; // TODO
-Vec3 seeker_spawn = {}; // TODO
+Vec3 hider_spawn = {};
+Vec3 seeker_spawn = {};
 
 bool game_started = false;
 
@@ -361,6 +365,60 @@ int main(int argc, char* argv[]) {
 	map_data.assign(
 		std::istreambuf_iterator<char>(map_file_stream),
 		std::istreambuf_iterator<char>()
+	);
+
+	// Map parsing & validation
+	sj_Reader r = sj_reader((char*)map_data.c_str(), map_data.size());
+	sj_Value map_objects = sj_read(&r);
+	if (map_objects.type != SJ_ARRAY) throw std::runtime_error(
+		std::string("Provided map ") + map_path + " is invalid"
+	);
+	bool map_has_errors = false;
+	std::string map_errors("");
+	bool hider_spawn_found = false;
+	bool seeker_spawn_found = false;
+	sj_Value map_object;
+	while (sj_iter_array(&r, map_objects, &map_object)) {
+		if (map_object.type != SJ_OBJECT) {
+			map_errors += "Non-object found in base array\n";
+			map_has_errors = true;
+			continue;
+		}
+
+		sj_Value key, val;
+		while (sj_iter_object(&r, map_object, &key, &val)) {
+			if (
+				(key.end - key.start) == sizeof("type")-1 &&
+				memcmp(key.start, "type", sizeof("type")-1) == 0
+			) {
+				if (
+					(val.end - val.start) >= sizeof("Hider_Spawn")-1 &&
+					memcmp(val.start, "Hider_Spawn", sizeof("Hider_Spawn")-1) == 0
+				) {
+					hider_spawn_found = true;
+					// TODO: Save into hider_spawn
+				}
+				else if (
+					(val.end - val.start) >= sizeof("Seeker_Spawn")-1 &&
+					memcmp(val.start, "Seeker_Spawn", sizeof("Seeker_Spawn")-1) == 0
+				) {
+					seeker_spawn_found = true;
+					// TODO: Save into seeker_spawn
+				}
+			}
+		}
+	}
+	if (!hider_spawn_found) {
+		map_errors += "Hider_Spawn not found\n";
+		map_has_errors = true;
+	}
+	if (!seeker_spawn_found) {
+		map_errors += "Seeker_Spawn not found\n";
+		map_has_errors = true;
+	}
+	if (map_has_errors) throw std::runtime_error(
+		std::string("Map ") + map_path + " has errors:\n"
+		+ map_errors
 	);
 
 	if (!enet_initialize()) throw std::runtime_error("Failed to initialize ENet");
