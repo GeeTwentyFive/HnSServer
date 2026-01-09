@@ -222,6 +222,7 @@ static inline void HandleReceive(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
+			((PlayerSyncPacketData*)packet->data)->player_id = peer->incomingPeerID;
 			enet_host_broadcast(server, 0, packet);
 		}
 		break;
