@@ -329,7 +329,55 @@ static inline void HandleReceive(
 
                         // Advance round
 
-                        // TODO
+                        player_states[player_id].player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
+                        player_states[player_id].position = hider_spawn;
+                        ControlSetPlayerStatePacketData cspsp_data{};
+                        cspsp_data.state = player_states[player_id];
+                        ENetPacket* set_state_packet = enet_packet_create(
+                                &cspsp_data,
+                                sizeof(ControlSetPlayerStatePacketData),
+                                ENET_PACKET_FLAG_RELIABLE
+                        );
+                        enet_peer_send(peer, 0, set_state_packet);
+
+                        serverside_player_data[player_id].was_seeker = true;
+
+                        PlayerID next_seeker_id;
+                        for (auto const& [player_id, ss_player_data] : serverside_player_data) {
+                                if (ss_player_data.was_seeker == false) {
+                                        next_seeker_id = player_id;
+                                        break;
+                                }
+                        }
+                        player_states[next_seeker_id].player_state_flags |= PlayerStateFlags::IS_SEEKER;
+                        player_states[next_seeker_id].player_state_flags |= PlayerStateFlags::ALIVE;
+                        player_states[next_seeker_id].position = seeker_spawn;
+                        ControlSetPlayerStatePacketData cspsp_data{};
+                        cspsp_data.state = player_states[next_seeker_id];
+                        ENetPacket* set_state_packet = enet_packet_create(
+                                &cspsp_data,
+                                sizeof(ControlSetPlayerStatePacketData),
+                                ENET_PACKET_FLAG_RELIABLE
+                        );
+                        enet_peer_send(player_id_to_peer[next_seeker_id], 0, set_state_packet);
+
+                        for (auto& [_player_id, player_state] : player_states) {
+                                if (
+                                        _player_id == player_id ||
+                                        _player_id == next_seeker_id
+                                ) continue;
+
+                                player_state.player_state_flags |= PlayerStateFlags::ALIVE;
+                                player_state.position = hider_spawn;
+                                ControlSetPlayerStatePacketData cspsp_data{};
+                                cspsp_data.state = player_state;
+                                ENetPacket* set_state_packet = enet_packet_create(
+                                        &cspsp_data,
+                                        sizeof(ControlSetPlayerStatePacketData),
+                                        ENET_PACKET_FLAG_RELIABLE
+                                );
+                                enet_peer_send(player_id_to_peer[next_seeker_id], 0, set_state_packet);
+                        }
 
 
                         enet_packet_destroy(packet);
