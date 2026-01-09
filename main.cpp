@@ -191,7 +191,7 @@ static inline void HandleReceive(
 				std::cout
 				<< "Player "
 				<< peer->incomingPeerID
-				<< "connected"
+				<< " connected"
 				<< std::endl;
 
 				PlayerConnectedPacketData pcp_data;
@@ -521,7 +521,7 @@ try {
 					std::cout
 					<< "Player "
 					<< event.peer->incomingPeerID
-					<< "disconnected"
+					<< " disconnected"
 					<< std::endl;
 
 					player_states.erase(event.peer->incomingPeerID);
