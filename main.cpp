@@ -324,6 +324,8 @@ static inline void HandleReceive(
 
 				enet_host_flush(server);
 
+				std::cout << "Game ended, stopping server..." << std::endl;
+
 				exit(0);
 			}
 

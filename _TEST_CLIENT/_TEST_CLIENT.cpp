@@ -145,7 +145,7 @@ PlayerState local_state = {
 	.position = {1.1, 2.2, 3.01},
 	.yaw = 3.14,
 	.pitch = 7.27,
-	.player_state_flags = (char)0b11111111,
+	.player_state_flags = (char)0b101010,
 	.hook_point = {0.01, 0.02, 0.03}
 };
 
@@ -293,7 +293,7 @@ int main() {
 					std::cout << "name: " << received_stats.name << std::endl;
 					std::cout << "seek_time: " << received_stats.seek_time << std::endl;
 					std::cout << "last_alive_rounds: " << received_stats.last_alive_rounds << std::endl;
-					std::cout << "points" << received_stats.points << std::endl;
+					std::cout << "points: " << received_stats.points << std::endl;
 				}
 				break;
 
@@ -332,12 +332,22 @@ int main() {
 				case PacketType::CONTROL_GAME_END:
 				{
 					std::cout << "Game end received" << std::endl;
+					exit(0);
 				}
 				break;
 			}
 
 			enet_packet_destroy(event.packet);
 		}
+
+		PlayerHiderCaughtPacketData phpc_data;
+		phpc_data.caught_hider_id = 0;
+		ENetPacket* hider_caught_packet = enet_packet_create(
+			&phpc_data,
+			sizeof(PlayerHiderCaughtPacketData),
+			0
+		);
+		enet_peer_send(server_peer, 0, hider_caught_packet);
 	}
 
 	return 0;
