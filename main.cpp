@@ -538,6 +538,7 @@ try {
 					<< " disconnected"
 					<< std::endl;
 
+					serverside_player_data.erase(event.peer->incomingPeerID);
 					player_states.erase(event.peer->incomingPeerID);
 					player_ids.erase(
 						std::remove(
