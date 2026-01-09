@@ -231,7 +231,7 @@ int main() {
 				{
 					std::cout
 					<< "Player "
-					<< *(
+					<< +*(
 						event.packet->data +
 						offsetof(PlayerConnectedPacketData, connected_player_id)
 					)
@@ -244,7 +244,7 @@ int main() {
 				{
 					std::cout
 					<< "Received player "
-					<< *(
+					<< +*(
 						event.packet->data +
 						offsetof(PlayerSyncPacketData, player_id)
 					)
@@ -278,7 +278,7 @@ int main() {
 				{
 					std::cout
 					<< "Received player "
-					<< *(
+					<< +*(
 						event.packet->data +
 						offsetof(PlayerStatsPacketData, player_id)
 					)
@@ -301,7 +301,7 @@ int main() {
 				{
 					std::cout
 					<< "Player "
-					<< *(
+					<< +*(
 						event.packet->data +
 						offsetof(PlayerDisconnectedPacketData, disconnected_player_id)
 					)
