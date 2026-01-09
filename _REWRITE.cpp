@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <array>
 
 #include "libs/json.hpp"
 #define ENET_IMPLEMENTATION
@@ -170,6 +171,7 @@ static inline void HandleReceive(
                                 player_id_to_peer[player_id] = peer;
 
                                 serverside_player_data[player_id] = ServerPlayerData{};
+                                player_stats[player_id] = PlayerStats{};
 
                                 std::cout
 				<< "Player "
@@ -195,19 +197,53 @@ static inline void HandleReceive(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
-                        // TODO
+                        ((PlayerSyncPacketData*)packet->data)->player_id = player_id;
+                        // Retransmit sync packet to all other peers except the one who sent it
+                        for (auto const& [player_peer, _] : peer_to_player_id) {
+                                if (player_peer == peer) continue;
+                                enet_peer_send(player_peer, 0, packet);
+                        }
                 }
                 break;
 
                 case PacketType::PLAYER_SET_NAME:
                 {
-                        // TODO
+                        memcpy(
+                                player_stats[peer_to_player_id[peer]].name,
+                                packet->data + offsetof(PlayerSetNamePacketData, name),
+                                MAX_NAME_LENGTH
+                        );
                 }
                 break;
 
                 case PacketType::PLAYER_READY:
                 {
-                        // TODO
+                        const PlayerID player_id = peer_to_player_id[peer];
+
+                        serverside_player_data[player_id].ready = true;
+
+                        int ready_players = 0;
+			for (auto const& [_, ss_player_data] : serverside_player_data) {
+				if (ss_player_data.ready) ready_players++;
+			}
+			if (ready_players != peer_to_player_id.size()) {
+                                enet_packet_destroy(packet);
+                                return;
+                        }
+
+                        // Everyone is ready; start game
+
+			current_seeker_timer = std::chrono::steady_clock::now();
+			game_started = true;
+
+			ENetPacket* game_start_packet = enet_packet_create(
+                                std::array<char, 1>{PacketType::CONTROL_GAME_START}.data(),
+				sizeof(PacketType),
+				ENET_PACKET_FLAG_RELIABLE
+			);
+			enet_host_broadcast(server, 0, game_start_packet);
+
+			enet_packet_destroy(packet);
                 }
                 break;
 
