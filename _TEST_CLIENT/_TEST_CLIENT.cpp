@@ -53,7 +53,6 @@ typedef struct {
 
 
 enum PacketType : char {
-	PLAYER_CONNECTED,
 	PLAYER_SYNC,
 	PLAYER_SET_NAME,
 	PLAYER_READY,
@@ -68,13 +67,6 @@ enum PacketType : char {
 };
 
 #pragma region PACKETS
-
-// Server <-> Clients
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::PLAYER_CONNECTED;
-	enet_uint8 connected_player_id;
-} PlayerConnectedPacketData;
 
 // Server <-> Clients
 #pragma pack(1)
@@ -225,19 +217,6 @@ int main() {
 
 			switch (*((PacketType*)(event.packet->data + 0))) {
 				default: break;
-
-				case PacketType::PLAYER_CONNECTED:
-				{
-					std::cout
-					<< "Player "
-					<< +*(
-						event.packet->data +
-						offsetof(PlayerConnectedPacketData, connected_player_id)
-					)
-					<< " connected"
-					<< std::endl;
-				}
-				break;
 
 				case PacketType::PLAYER_SYNC:
 				{
