@@ -19,6 +19,8 @@
 #define DEFAULT_PORT 55555
 #define MAX_PLAYERS 8
 
+#define MAX_NAME_LENGTH 64
+
 
 #pragma pack(1)
 typedef struct {
@@ -52,6 +54,7 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
+	char name[MAX_NAME_LENGTH] = {0};
 	float seek_time = -1.0;
 	char last_alive_rounds = 0;
 	unsigned char points = 0;
@@ -139,7 +142,15 @@ typedef struct {
 #pragma endregion PACKETS
 
 
+enum DisconnectReason : char {
+	GAME_STARTED,
+	NAME_TOO_LONG
+};
+
+
 ENetHost* server;
+
+std::unordered_map<enet_uint8, std::string> client_names;
 
 std::vector<enet_uint8> player_ids = []{
 	std::vector<enet_uint8> v;
@@ -179,9 +190,8 @@ static inline void HandleReceive(
 				serverside_player_data[peer->incomingPeerID] = ServerPlayerData{};
 
 				std::cout
-				<< "Player "
-				<< peer->incomingPeerID
-				<< "connected"
+				<< client_names[peer->incomingPeerID]
+				<< " connected"
 				<< std::endl;
 
 				PlayerConnectedPacketData pcp_data;
@@ -281,6 +291,13 @@ static inline void HandleReceive(
 						(player_stat.seek_time - player_stats.size()-1)
 						+ player_stat.last_alive_rounds
 					);
+
+					memcpy(
+						player_stat.name,
+						client_names[peer->incomingPeerID].c_str(),
+						client_names[peer->incomingPeerID].length()
+					);
+					player_stat.name[client_names[peer->incomingPeerID].length()] = '\0';
 
 					PlayerStatsPacketData psp_data;
 					psp_data.player_id = peer->incomingPeerID;
@@ -469,11 +486,23 @@ try {
 				case ENET_EVENT_TYPE_CONNECT:
 				{
 					if (game_started) {
-						enet_peer_disconnect(event.peer, 0);
+						enet_peer_disconnect(event.peer, DisconnectReason::GAME_STARTED);
 						enet_host_flush(server);
 						enet_peer_reset(event.peer);
 						continue;
 					}
+
+					if (event.packet->dataLength > MAX_NAME_LENGTH) {
+						enet_peer_disconnect(event.peer, DisconnectReason::NAME_TOO_LONG);
+						enet_host_flush(server);
+						enet_peer_reset(event.peer);
+						continue;
+					}
+
+					client_names[event.peer->incomingPeerID] = std::string(
+						(char*)event.packet->data,
+						event.packet->dataLength
+					);
 				}
 				break;
 
@@ -498,9 +527,8 @@ try {
 					) continue;
 
 					std::cout
-					<< "Player "
-					<< event.peer->incomingPeerID
-					<< "disconnected"
+					<< client_names[event.peer->incomingPeerID]
+					<< " disconnected"
 					<< std::endl;
 
 					player_states.erase(event.peer->incomingPeerID);
