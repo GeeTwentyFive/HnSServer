@@ -252,6 +252,7 @@ static inline void HandleReceive(
                         const PlayerID player_id = peer_to_player_id[peer];
 
 
+                        // If not sent by seeker: return
                         if (!(
                                 player_states[player_id].player_state_flags
 				& PlayerStateFlags::IS_SEEKER
@@ -261,12 +262,15 @@ static inline void HandleReceive(
                         }
 
 
+                        // Kill caught hider
                         enet_uint8 caught_hider_id = *((enet_uint8*)(
 				packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
 			));
 
 			player_states[caught_hider_id].player_state_flags &= ~PlayerStateFlags::ALIVE;
 
+
+                        // If alive hiders still left in round: return
 			int alive_hiders_left = 0;
 			for (auto const& [_, player_state] : player_states) {
 				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
@@ -277,6 +281,8 @@ static inline void HandleReceive(
 				return;
 			}
 
+
+                        // Set/calculate players stats
 
                         players_stats[player_id].seek_time = std::chrono::duration<float>(
 				std::chrono::steady_clock::now() - current_seeker_timer
@@ -327,7 +333,7 @@ static inline void HandleReceive(
                         }
 
 
-                        // Advance round
+                        // Advance round (set players states -> respawn)
 
                         player_states[player_id].player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
                         player_states[player_id].position = hider_spawn;
