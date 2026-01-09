@@ -21,16 +21,6 @@
 #define MAX_NAME_LENGTH 64
 
 
-uint16_t _player_guid = 0;
-uint16_t NewPlayerGUID() {
-	if (_player_guid == std::numeric_limits<uint16_t>::max()) throw std::runtime_error(
-		"Player GUID counter overflow"
-	);
-
-	return _player_guid++;
-}
-
-
 #pragma pack(1)
 typedef struct {
 	float x = 0.0;
@@ -132,18 +122,26 @@ typedef struct {
 #pragma endregion PACKETS_DATA
 
 
+typedef uint16_t PlayerID;
+
+PlayerID _player_GUID = 0;
+static inline const PlayerID NewPlayerGUID() {
+	if (_player_GUID == std::numeric_limits<PlayerID>::max()) throw std::runtime_error(
+		"Player GUID counter overflow"
+	);
+
+	return _player_GUID++;
+}
+
+
 ENetHost* server;
 
-std::unordered_map<ENetPeer*, uint16_t> peer_to_player_id(MAX_PLAYERS);
-std::unordered_map<uint16_t, ENetPeer*> player_id_to_peer(MAX_PLAYERS);
-// static inline void RegisterPlayer(ENetPeer* player_peer) {
-//         const uint16_t player_id = NewPlayerGUID();
-//         peer_to_player_id[player_peer] = player_id;
-//         player_id_to_peer[player_id] = player_peer;
-// }
-std::unordered_map<enet_uint8, PlayerState> player_states(MAX_PLAYERS);
-std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data(MAX_PLAYERS);
-std::unordered_map<enet_uint8, PlayerStats> player_stats(MAX_PLAYERS);
+std::unordered_map<ENetPeer*, PlayerID> peer_to_player_id(MAX_PLAYERS);
+std::unordered_map<PlayerID, ENetPeer*> player_id_to_peer(MAX_PLAYERS);
+
+std::unordered_map<PlayerID, PlayerState> player_states(MAX_PLAYERS);
+std::unordered_map<PlayerID, ServerPlayerData> serverside_player_data(MAX_PLAYERS);
+std::unordered_map<PlayerID, PlayerStats> player_stats(MAX_PLAYERS);
 
 std::string map_data;
 Vec3 hider_spawn = {};
@@ -165,6 +163,38 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_SYNC:
                 {
+                        if (!peer_to_player_id.contains(peer)) {
+                                const PlayerID player_id = NewPlayerGUID();
+
+                                peer_to_player_id[peer] = player_id;
+                                player_id_to_peer[player_id] = peer;
+
+                                serverside_player_data[player_id] = ServerPlayerData{};
+
+                                std::cout
+				<< "Player "
+				<< player_id
+				<< " connected"
+				<< std::endl;
+
+                                char* map_data_packet_data = new char[sizeof(PacketType) + map_data.size()];
+                                *((PacketType*)map_data_packet_data) = PacketType::CONTROL_MAP_DATA;
+                                memcpy(map_data_packet_data+sizeof(PacketType), map_data.c_str(), map_data.size());
+                                ENetPacket* map_data_packet = enet_packet_create(
+					map_data_packet_data,
+					sizeof(PacketType) + map_data.size(),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_peer_send(peer, 0, map_data_packet);
+                                delete[] map_data_packet_data;
+                        }
+
+                        const PlayerID player_id = peer_to_player_id[peer];
+
+                        player_states[player_id] = *((PlayerState*)(
+				packet->data + offsetof(PlayerSyncPacketData, player_state)
+			));
+
                         // TODO
                 }
                 break;
@@ -344,7 +374,7 @@ try {
                                 {
                                         if (!peer_to_player_id.contains(event.peer)) continue;
 
-                                        const uint16_t player_id = peer_to_player_id[event.peer];
+                                        const PlayerID player_id = peer_to_player_id[event.peer];
 
                                         std::cout
                                         << "Player "
