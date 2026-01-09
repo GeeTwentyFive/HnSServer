@@ -164,6 +164,13 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_SYNC:
                 {
+                        if (
+                                packet->dataLength < (
+                                        sizeof(PacketType) +
+                                        sizeof(PlayerSyncPacketData)
+                                )
+                        ) break;
+
                         if (!peer_to_player_id.contains(peer)) {
                                 const PlayerID player_id = NewPlayerGUID();
 
@@ -179,16 +186,15 @@ static inline void HandleReceive(
 				<< " connected"
 				<< std::endl;
 
-                                char* map_data_packet_data = new char[sizeof(PacketType) + map_data.size()];
-                                *((PacketType*)map_data_packet_data) = PacketType::CONTROL_MAP_DATA;
-                                memcpy(map_data_packet_data+sizeof(PacketType), map_data.c_str(), map_data.size());
+                                std::vector<char> map_data_packet_data(sizeof(PacketType) + map_data.size());
+                                map_data_packet_data[0] = PacketType::CONTROL_MAP_DATA;
+                                memcpy(map_data_packet_data.data() + 1, map_data.c_str(), map_data.size());
                                 ENetPacket* map_data_packet = enet_packet_create(
-					map_data_packet_data,
+					map_data_packet_data.data(),
 					sizeof(PacketType) + map_data.size(),
 					ENET_PACKET_FLAG_RELIABLE
 				);
 				enet_peer_send(peer, 0, map_data_packet);
-                                delete[] map_data_packet_data;
                         }
 
                         const PlayerID player_id = peer_to_player_id[peer];
@@ -201,13 +207,28 @@ static inline void HandleReceive(
                         // Retransmit sync packet to all other peers except the one who sent it
                         for (auto const& [player_peer, _] : peer_to_player_id) {
                                 if (player_peer == peer) continue;
-                                enet_peer_send(player_peer, 0, packet);
+                                enet_peer_send(
+                                        player_peer,
+                                        0,
+                                        enet_packet_create(
+                                                packet->data,
+                                                packet->dataLength,
+                                                0
+                                        )
+                                );
                         }
                 }
                 break;
 
                 case PacketType::PLAYER_SET_NAME:
                 {
+                        if (
+                                packet->dataLength < (
+                                        sizeof(PacketType) +
+                                        sizeof(PlayerSetNamePacketData)
+                                )
+                        ) break;
+
                         memcpy(
                                 players_stats[peer_to_player_id[peer]].name,
                                 packet->data + offsetof(PlayerSetNamePacketData, name),
@@ -226,10 +247,7 @@ static inline void HandleReceive(
 			for (auto const& [_, ss_player_data] : serverside_player_data) {
 				if (ss_player_data.ready) ready_players++;
 			}
-			if (ready_players != peer_to_player_id.size()) {
-                                enet_packet_destroy(packet);
-                                return;
-                        }
+			if (ready_players != peer_to_player_id.size()) break;
 
                         // Everyone is ready; start game
 
@@ -242,13 +260,19 @@ static inline void HandleReceive(
 				ENET_PACKET_FLAG_RELIABLE
 			);
 			enet_host_broadcast(server, 0, game_start_packet);
-
-			enet_packet_destroy(packet);
                 }
                 break;
 
                 case PacketType::PLAYER_HIDER_CAUGHT:
                 {
+                        if (
+                                packet->dataLength < (
+                                        sizeof(PacketType) +
+                                        sizeof(PlayerHiderCaughtPacketData)
+                                )
+                        ) break;
+
+
                         const PlayerID player_id = peer_to_player_id[peer];
 
 
@@ -256,10 +280,7 @@ static inline void HandleReceive(
                         if (!(
                                 player_states[player_id].player_state_flags
 				& PlayerStateFlags::IS_SEEKER
-                        )) {
-                                enet_packet_destroy(packet);
-                                return;
-                        }
+                        )) break;
 
 
                         // Kill caught hider
@@ -276,10 +297,7 @@ static inline void HandleReceive(
 				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
 				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
 			}
-			if (alive_hiders_left != 0) {
-				enet_packet_destroy(packet);
-				return;
-			}
+			if (alive_hiders_left != 0) break;
 
 
                         // Set/calculate players stats
@@ -382,14 +400,13 @@ static inline void HandleReceive(
                                         sizeof(ControlSetPlayerStatePacketData),
                                         ENET_PACKET_FLAG_RELIABLE
                                 );
-                                enet_peer_send(player_id_to_peer[next_seeker_id], 0, set_state_packet);
+                                enet_peer_send(player_id_to_peer[_player_id], 0, set_state_packet);
                         }
-
-
-                        enet_packet_destroy(packet);
                 }
                 break;
         }
+
+        enet_packet_destroy(packet);
 }
 
 
