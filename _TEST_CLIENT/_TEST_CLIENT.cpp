@@ -63,6 +63,7 @@ enum PacketType : char {
 	// Server -> Client control packets
 	CONTROL_MAP_DATA,
 	CONTROL_GAME_START,
+	CONTROL_SET_PLAYER_STATE,
 	CONTROL_GAME_END
 };
 
@@ -123,6 +124,12 @@ typedef struct {
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_GAME_START;
 } ControlGameStartPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::CONTROL_GAME_START;
+	PlayerState state;
+} ControlSetPlayerStatePacketData;
 
 #pragma pack(1)
 typedef struct {
