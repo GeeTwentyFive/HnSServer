@@ -206,7 +206,7 @@ static inline void HandleReceive(
 				<< " connected"
 				<< std::endl;
 
-				PlayerConnectedPacketData pcp_data;
+				PlayerConnectedPacketData pcp_data{};
 				pcp_data.connected_player_id = peer->incomingPeerID;
 				ENetPacket* player_connected_packet = enet_packet_create(
 					&pcp_data,
@@ -216,11 +216,11 @@ static inline void HandleReceive(
 				enet_host_broadcast(server, 0, player_connected_packet);
 
 				char* mdp_data = new char[sizeof(ControlMapDataPacketHeader) + map_data.size()];
-				ControlMapDataPacketHeader mdp_header;
+				ControlMapDataPacketHeader mdp_header{};
 				memcpy(mdp_data, &mdp_header, sizeof(ControlMapDataPacketHeader));
 				memcpy(mdp_data+sizeof(ControlMapDataPacketHeader), map_data.c_str(), map_data.size());
 				ENetPacket* map_data_packet = enet_packet_create(
-					&mdp_data,
+					mdp_data,
 					sizeof(ControlMapDataPacketHeader) + map_data.size(),
 					ENET_PACKET_FLAG_RELIABLE
 				);
@@ -263,7 +263,7 @@ static inline void HandleReceive(
 			current_seeker_timer = std::chrono::steady_clock::now();
 			game_started = true;
 
-			ControlGameStartPacketData cgsp_data;
+			ControlGameStartPacketData cgsp_data{};
 			ENetPacket* game_start_packet = enet_packet_create(
 				&cgsp_data,
 				sizeof(ControlGameStartPacketData),
@@ -315,7 +315,7 @@ static inline void HandleReceive(
 						+ player_stat.last_alive_rounds
 					);
 
-					PlayerStatsPacketData psp_data;
+					PlayerStatsPacketData psp_data{};
 					psp_data.player_id = peer->incomingPeerID;
 					psp_data.player_stats = player_stat;
 					ENetPacket* player_stats_packet = enet_packet_create(
@@ -326,7 +326,7 @@ static inline void HandleReceive(
 					enet_host_broadcast(server, 0, player_stats_packet);
 				}
 
-				ControlGameEndPacketData cgp_data;
+				ControlGameEndPacketData cgp_data{};
 				ENetPacket* control_game_end_packet = enet_packet_create(
 					&cgp_data,
 					sizeof(ControlGameEndPacketData),
@@ -356,7 +356,7 @@ static inline void HandleReceive(
 
 				player_state.player_state_flags |= PlayerStateFlags::ALIVE;
 
-				PlayerSyncPacketData psp_data;
+				PlayerSyncPacketData psp_data{};
 				psp_data.player_id = player_id;
 				psp_data.player_state = player_state;
 				ENetPacket* player_state_packet = enet_packet_create(
@@ -554,7 +554,7 @@ try {
 						exit(0);
 					}
 
-					PlayerDisconnectedPacketData pdp_data;
+					PlayerDisconnectedPacketData pdp_data{};
 					pdp_data.disconnected_player_id = event.peer->incomingPeerID;
 					ENetPacket* player_disconnected_packet = enet_packet_create(
 						&pdp_data,

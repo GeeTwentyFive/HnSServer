@@ -125,7 +125,6 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
-	uint32_t map_data_size;
 } ControlMapDataPacketHeader;
 
 #pragma pack(1)
@@ -183,7 +182,7 @@ int main() {
 		exit(1);
 	}
 
-	PlayerSyncPacketData psp_data;
+	PlayerSyncPacketData psp_data{};
 	psp_data.player_state = local_state;
 	ENetPacket* initial_sync_packet = enet_packet_create(
 		&psp_data,
@@ -192,7 +191,7 @@ int main() {
 	);
 	enet_peer_send(server_peer, 0, initial_sync_packet);
 
-	PlayerSetNamePacketData psn_data;
+	PlayerSetNamePacketData psn_data{};
 	memcpy(psn_data.name, NAME, sizeof(NAME));
 	ENetPacket* set_name_packet = enet_packet_create(
 		&psn_data,
@@ -201,7 +200,7 @@ int main() {
 	);
 	enet_peer_send(server_peer, 0, set_name_packet);
 
-	PlayerReadyPacketData prp_data;
+	PlayerReadyPacketData prp_data{};
 	ENetPacket* ready_packet = enet_packet_create(
 		&prp_data,
 		sizeof(PlayerReadyPacketData),
@@ -212,7 +211,7 @@ int main() {
 	for (;;) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-		PlayerSyncPacketData psp_data;
+		PlayerSyncPacketData psp_data{};
 		psp_data.player_state = local_state;
 		ENetPacket* sync_packet = enet_packet_create(
 			&psp_data,
@@ -292,8 +291,8 @@ int main() {
 
 					std::cout << "name: " << received_stats.name << std::endl;
 					std::cout << "seek_time: " << received_stats.seek_time << std::endl;
-					std::cout << "last_alive_rounds: " << received_stats.last_alive_rounds << std::endl;
-					std::cout << "points: " << received_stats.points << std::endl;
+					std::cout << "last_alive_rounds: " << +received_stats.last_alive_rounds << std::endl;
+					std::cout << "points: " << +received_stats.points << std::endl;
 				}
 				break;
 
@@ -340,7 +339,7 @@ int main() {
 			enet_packet_destroy(event.packet);
 		}
 
-		PlayerHiderCaughtPacketData phpc_data;
+		PlayerHiderCaughtPacketData phpc_data{};
 		phpc_data.caught_hider_id = 0;
 		ENetPacket* hider_caught_packet = enet_packet_create(
 			&phpc_data,
