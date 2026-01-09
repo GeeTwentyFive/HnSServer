@@ -338,7 +338,7 @@ static inline void HandleReceive(
                         if (done_seekers_count == peer_to_player_id.size()) {
                                 for (auto& [player_id, player_stats] : players_stats) {
                                         player_stats.points = (
-						(player_stats.seek_time - (players_stats.size()-1))
+						(player_stats.seek_time - (players_stats.size()-1)) // TODO
 						+ player_stats.last_alive_rounds
 					);
 

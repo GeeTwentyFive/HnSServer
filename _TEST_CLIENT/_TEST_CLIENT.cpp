@@ -119,7 +119,7 @@ PlayerState local_state = {
 	.position = {1.1, 2.2, 3.01},
 	.yaw = 3.14,
 	.pitch = 7.27,
-	.player_state_flags = (char)0b0,
+	.player_state_flags = (char)0b101000,
 	.hook_point = {0.01, 0.02, 0.03}
 };
 
@@ -316,6 +316,16 @@ int main() {
 					std::cout << "hook_point x: " << received_state.hook_point.x << std::endl;
 					std::cout << "hook_point y: " << received_state.hook_point.y << std::endl;
 					std::cout << "hook_point z: " << received_state.hook_point.z << std::endl;
+
+					local_state.position.x = received_state.position.x;
+					local_state.position.y = received_state.position.y;
+					local_state.position.z = received_state.position.z;
+					local_state.yaw = received_state.yaw;
+					local_state.pitch = received_state.pitch;
+					local_state.player_state_flags = received_state.player_state_flags;
+					local_state.hook_point.x = received_state.hook_point.x;
+					local_state.hook_point.y = received_state.hook_point.y;
+					local_state.hook_point.z = received_state.hook_point.z;
 				}
 				break;
 
