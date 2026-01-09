@@ -30,12 +30,12 @@ typedef struct {
 } Vec3;
 
 enum PlayerStateFlags {
-	ALIVE = 0,
-	IS_SEEKER = 1,
-	JUMPED = 2,
-	WALLJUMPED = 4,
-	SLIDING = 8,
-	FLASHLIGHT = 16
+	ALIVE = 1 << 0,
+	IS_SEEKER = 1 << 1,
+	JUMPED = 1 << 2,
+	WALLJUMPED = 1 << 3,
+	SLIDING = 1 << 4,
+	FLASHLIGHT = 1 << 5
 };
 
 #pragma pack(1)
@@ -267,19 +267,19 @@ static inline void HandleReceive(
 		{
 			if (!(
 				player_states[peer->incomingPeerID].player_state_flags
-				& (1 << PlayerStateFlags::IS_SEEKER)
+				& PlayerStateFlags::IS_SEEKER
 			)) return;
 
 			enet_uint8 caught_hider_id = *((enet_uint8*)(
 				packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
 			));
 
-			player_states[caught_hider_id].player_state_flags &= ~(1 << PlayerStateFlags::ALIVE);
+			player_states[caught_hider_id].player_state_flags &= ~PlayerStateFlags::ALIVE;
 
 			int alive_hiders_left = 0;
 			for (auto const& [_, player_state] : player_states) {
-				if (player_state.player_state_flags & (1 << PlayerStateFlags::IS_SEEKER)) continue;
-				if (player_state.player_state_flags & (1 << PlayerStateFlags::ALIVE)) alive_hiders_left++;
+				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
+				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
 			}
 			if (alive_hiders_left != 0) return;
 
@@ -332,15 +332,15 @@ static inline void HandleReceive(
 			// Advance round
 			for (auto& [player_id, player_state] : player_states) {
 				if (player_id == player_ids[current_seeker_id_index]) {
-					player_state.player_state_flags |= (1 << PlayerStateFlags::IS_SEEKER);
+					player_state.player_state_flags |= PlayerStateFlags::IS_SEEKER;
 					player_state.position = seeker_spawn;
 				}
 				else {
-					player_state.player_state_flags &= ~(1 << PlayerStateFlags::IS_SEEKER);
+					player_state.player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
 					player_state.position = hider_spawn;
 				}
 
-				player_state.player_state_flags |= (1 << PlayerStateFlags::ALIVE);
+				player_state.player_state_flags |= PlayerStateFlags::ALIVE;
 
 				PlayerSyncPacketData psp_data;
 				psp_data.player_id = player_id;
