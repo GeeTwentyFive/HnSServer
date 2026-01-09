@@ -534,6 +534,11 @@ try {
 						player_ids.end()
 					);
 
+					if (player_ids.size() == 0) {
+						std::cout << "All players left, shutting down server..." << std::endl;
+						exit(0);
+					}
+
 					PlayerDisconnectedPacketData pdp_data;
 					pdp_data.disconnected_player_id = event.peer->incomingPeerID;
 					ENetPacket* player_disconnected_packet = enet_packet_create(
