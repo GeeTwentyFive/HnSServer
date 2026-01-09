@@ -164,12 +164,7 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_SYNC:
                 {
-                        if (
-                                packet->dataLength < (
-                                        sizeof(PacketType) +
-                                        sizeof(PlayerSyncPacketData)
-                                )
-                        ) break;
+                        if (packet->dataLength < sizeof(PlayerSyncPacketData)) break;
 
                         if (!peer_to_player_id.contains(peer)) {
                                 const PlayerID player_id = NewPlayerGUID();
@@ -222,12 +217,7 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_SET_NAME:
                 {
-                        if (
-                                packet->dataLength < (
-                                        sizeof(PacketType) +
-                                        sizeof(PlayerSetNamePacketData)
-                                )
-                        ) break;
+                        if (packet->dataLength < sizeof(PlayerSetNamePacketData)) break;
 
                         memcpy(
                                 players_stats[peer_to_player_id[peer]].name,
@@ -265,12 +255,7 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_HIDER_CAUGHT:
                 {
-                        if (
-                                packet->dataLength < (
-                                        sizeof(PacketType) +
-                                        sizeof(PlayerHiderCaughtPacketData)
-                                )
-                        ) break;
+                        if (packet->dataLength < sizeof(PlayerHiderCaughtPacketData)) break;
 
 
                         const PlayerID player_id = peer_to_player_id[peer];
@@ -321,7 +306,7 @@ static inline void HandleReceive(
                         if (done_seekers_count == peer_to_player_id.size()) {
                                 for (auto& [player_id, player_stats] : players_stats) {
                                         player_stats.points = (
-						(player_stats.seek_time - players_stats.size()-1)
+						(player_stats.seek_time - (players_stats.size()-1))
 						+ player_stats.last_alive_rounds
 					);
 
