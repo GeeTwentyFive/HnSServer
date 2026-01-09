@@ -134,7 +134,6 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
-	uint32_t map_data_size;
 } ControlMapDataPacketHeader;
 
 #pragma pack(1)
@@ -206,7 +205,6 @@ static inline void HandleReceive(
 
 				char* mdp_data = new char[sizeof(ControlMapDataPacketHeader) + map_data.size()];
 				ControlMapDataPacketHeader mdp_header;
-				mdp_header.map_data_size = map_data.size();
 				memcpy(mdp_data, &mdp_header, sizeof(ControlMapDataPacketHeader));
 				memcpy(mdp_data+sizeof(ControlMapDataPacketHeader), map_data.c_str(), map_data.size());
 				ENetPacket* map_data_packet = enet_packet_create(
