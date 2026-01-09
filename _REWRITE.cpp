@@ -158,7 +158,35 @@ static inline void HandleReceive(
 	ENetPeer* peer,
 	ENetPacket* packet
 ) {
-        // TODO
+        if (packet->dataLength < sizeof(PacketType)) {enet_packet_destroy(packet); return;}
+
+        switch (*((PacketType*)(packet->data + 0))) {
+                default: break;
+
+                case PacketType::PLAYER_SYNC:
+                {
+                        // TODO
+                }
+                break;
+
+                case PacketType::PLAYER_SET_NAME:
+                {
+                        // TODO
+                }
+                break;
+
+                case PacketType::PLAYER_READY:
+                {
+                        // TODO
+                }
+                break;
+
+                case PacketType::PLAYER_HIDER_CAUGHT:
+                {
+                        // TODO
+                }
+                break;
+        }
 }
 
 
