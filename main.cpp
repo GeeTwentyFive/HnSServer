@@ -6,6 +6,7 @@
 #include <iostream>
 #include <thread>
 #include <array>
+#include <map>
 
 #include "libs/json.hpp"
 #define ENET_IMPLEMENTATION
@@ -336,6 +337,8 @@ static inline void HandleReceive(
                                 if (ss_player_data.was_seeker) done_seekers_count++;
                         }
                         if (done_seekers_count == peer_to_player_id.size()) {
+				// TODO: Sort seek times into player id -> seek time dict via std::map
+
                                 for (auto& [player_id, player_stats] : players_stats) {
                                         player_stats.points = (
 						(player_stats.seek_time - (players_stats.size()-1)) // TODO
