@@ -241,6 +241,38 @@ static inline void HandleReceive(
 
                         // Everyone is ready; start game
 
+			PlayerID seeker_id = peer_to_player_id.begin()->second;
+
+			{
+                        player_states[seeker_id].player_state_flags |= PlayerStateFlags::IS_SEEKER;
+                        player_states[seeker_id].player_state_flags |= PlayerStateFlags::ALIVE;
+                        player_states[seeker_id].position = seeker_spawn;
+                        ControlSetPlayerStatePacketData cspsp_data{};
+                        cspsp_data.state = player_states[seeker_id];
+                        ENetPacket* set_state_packet = enet_packet_create(
+                                &cspsp_data,
+                                sizeof(ControlSetPlayerStatePacketData),
+                                ENET_PACKET_FLAG_RELIABLE
+                        );
+                        enet_peer_send(player_id_to_peer[seeker_id], 0, set_state_packet);
+			}
+
+			for (auto& [_player_id, player_state] : player_states) {
+                                if (_player_id == seeker_id) continue;
+
+				player_state.player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
+                                player_state.player_state_flags |= PlayerStateFlags::ALIVE;
+                                player_state.position = hider_spawn;
+                                ControlSetPlayerStatePacketData cspsp_data{};
+                                cspsp_data.state = player_state;
+                                ENetPacket* set_state_packet = enet_packet_create(
+                                        &cspsp_data,
+                                        sizeof(ControlSetPlayerStatePacketData),
+                                        ENET_PACKET_FLAG_RELIABLE
+                                );
+                                enet_peer_send(player_id_to_peer[_player_id], 0, set_state_packet);
+                        }
+
 			current_seeker_timer = std::chrono::steady_clock::now();
 			game_started = true;
 

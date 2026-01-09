@@ -119,7 +119,7 @@ PlayerState local_state = {
 	.position = {1.1, 2.2, 3.01},
 	.yaw = 3.14,
 	.pitch = 7.27,
-	.player_state_flags = (char)0b101010,
+	.player_state_flags = (char)0b0,
 	.hook_point = {0.01, 0.02, 0.03}
 };
 
