@@ -549,6 +549,17 @@ try {
 
                                         const PlayerID player_id = peer_to_player_id[event.peer];
 
+                                        if (game_started) {
+                                                std::cout
+                                                << "Player "
+                                                << player_id
+                                                << " disconnected during started game"
+                                                << ", shutting down..."
+                                                << std::endl;
+
+                                                exit(0);
+                                        }
+
                                         std::cout
                                         << "Player "
                                         << player_id
@@ -561,11 +572,6 @@ try {
 
                                         player_id_to_peer.erase(player_id);
                                         peer_to_player_id.erase(event.peer);
-
-                                        if (peer_to_player_id.size() == 0) {
-                                                std::cout << "All players left, shutting down..." << std::endl;
-						exit(0);
-                                        }
 
                                         PlayerDisconnectedPacketData pdp_data{};
 					pdp_data.disconnected_player_id = player_id;
