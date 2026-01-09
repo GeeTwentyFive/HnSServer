@@ -156,9 +156,21 @@ std::vector<enet_uint8> player_ids = []{
 	v.reserve(MAX_PLAYERS);
 	return v;
 }();
-std::unordered_map<enet_uint8, PlayerState> player_states;
-std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data;
-std::unordered_map<enet_uint8, PlayerStats> player_stats;
+std::unordered_map<enet_uint8, PlayerState> player_states = []{
+	std::unordered_map<enet_uint8, PlayerState> m;
+	m.reserve(MAX_PLAYERS);
+	return m;
+}();
+std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data = []{
+	std::unordered_map<enet_uint8, ServerPlayerData> m;
+	m.reserve(MAX_PLAYERS);
+	return m;
+}();
+std::unordered_map<enet_uint8, PlayerStats> player_stats = []{
+	std::unordered_map<enet_uint8, PlayerStats> m;
+	m.reserve(MAX_PLAYERS);
+	return m;
+}();
 
 std::string map_data;
 Vec3 hider_spawn = {};
