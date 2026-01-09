@@ -267,7 +267,7 @@ static inline void HandleReceive(
 		{
 			if (!(
 				player_states[peer->incomingPeerID].player_state_flags
-				& PlayerStateFlags::IS_SEEKER
+				& (1 << PlayerStateFlags::IS_SEEKER)
 			)) return;
 
 			enet_uint8 caught_hider_id = *((enet_uint8*)(
@@ -278,8 +278,8 @@ static inline void HandleReceive(
 
 			int alive_hiders_left = 0;
 			for (auto const& [_, player_state] : player_states) {
-				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
-				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
+				if (player_state.player_state_flags & (1 << PlayerStateFlags::IS_SEEKER)) continue;
+				if (player_state.player_state_flags & (1 << PlayerStateFlags::ALIVE)) alive_hiders_left++;
 			}
 			if (alive_hiders_left != 0) return;
 
