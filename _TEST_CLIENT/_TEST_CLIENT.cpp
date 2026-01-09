@@ -1,5 +1,6 @@
 #include <iostream>
 #include <thread>
+#include <array>
 
 #define ENET_IMPLEMENTATION
 #include "../libs/enet.h"
@@ -20,7 +21,8 @@ typedef struct {
 	float z = 0.0;
 } Vec3;
 
-enum PlayerStateFlags {
+
+enum PlayerStateFlags : uint8_t {
 	ALIVE = 1 << 0,
 	IS_SEEKER = 1 << 1,
 	JUMPED = 1 << 2,
@@ -34,13 +36,13 @@ typedef struct {
 	Vec3 position;
 	float yaw;
 	float pitch;
-	char player_state_flags; // PlayerStateFlags bitmask
+	uint8_t player_state_flags; // PlayerStateFlags bitmask
 	Vec3 hook_point;
 } PlayerState;
 
-#pragma pack(1)
 typedef struct {
 	bool ready = false;
+        bool was_seeker = false;
 } ServerPlayerData;
 
 #pragma pack(1)
@@ -53,12 +55,12 @@ typedef struct {
 
 
 enum PacketType : char {
-	PLAYER_SYNC,
-	PLAYER_SET_NAME,
-	PLAYER_READY,
-	PLAYER_HIDER_CAUGHT,
-	PLAYER_STATS,
-	PLAYER_DISCONNECTED,
+	PLAYER_SYNC, // Client -> Server -> other Clients
+	PLAYER_SET_NAME, // Client -> Server
+	PLAYER_READY, // Client -> Server
+	PLAYER_HIDER_CAUGHT, // Client (seeker) -> Server
+	PLAYER_STATS, // Server -> Clients
+	PLAYER_DISCONNECTED, // Server -> Clients
 
 	// Server -> Client control packets
 	CONTROL_MAP_DATA,
@@ -67,37 +69,27 @@ enum PacketType : char {
 	CONTROL_GAME_END
 };
 
-#pragma region PACKETS
+#pragma region PACKETS_DATA
 
-// Server <-> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SYNC;
-	enet_uint8 player_id;
+	uint8_t player_id;
 	PlayerState player_state;
 } PlayerSyncPacketData;
 
-// Client -> Server
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SET_NAME;
 	char name[MAX_NAME_LENGTH];
 } PlayerSetNamePacketData;
 
-// Client -> Server
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::PLAYER_READY;
-} PlayerReadyPacketData;
-
-// Client (seeker) -> Server
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
 	enet_uint8 caught_hider_id;
 } PlayerHiderCaughtPacketData;
 
-// Server -> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_STATS;
@@ -105,7 +97,6 @@ typedef struct {
 	PlayerStats player_stats;
 } PlayerStatsPacketData;
 
-// Server <-> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_DISCONNECTED;
@@ -117,26 +108,11 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
-} ControlMapDataPacketHeader;
-
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_START;
-} ControlGameStartPacketData;
-
-#pragma pack(1)
-typedef struct {
 	PacketType packet_type = PacketType::CONTROL_SET_PLAYER_STATE;
 	PlayerState state;
 } ControlSetPlayerStatePacketData;
 
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_END;
-} ControlGameEndPacketData;
-
-#pragma endregion PACKETS
+#pragma endregion PACKETS_DATA
 
 
 PlayerState local_state = {
@@ -202,10 +178,9 @@ int main() {
 	enet_host_flush(client);
 	std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-	PlayerReadyPacketData prp_data{};
 	ENetPacket* ready_packet = enet_packet_create(
-		&prp_data,
-		sizeof(PlayerReadyPacketData),
+		std::array<char, 1>{PacketType::PLAYER_READY}.data(),
+		sizeof(PacketType),
 		ENET_PACKET_FLAG_RELIABLE
 	);
 	enet_peer_send(server_peer, 0, ready_packet);
@@ -304,8 +279,8 @@ int main() {
 					std::cout << "Map data received:" << std::endl;
 					std::cout
 					<< std::string(
-						(char*)(event.packet->data + sizeof(ControlMapDataPacketHeader)),
-						event.packet->dataLength - sizeof(ControlMapDataPacketHeader)
+						(char*)(event.packet->data + sizeof(PacketType)),
+						event.packet->dataLength - sizeof(PacketType)
 					)
 					<< std::endl;
 				}
