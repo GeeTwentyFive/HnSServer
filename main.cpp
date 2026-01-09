@@ -1,3 +1,4 @@
+#include <limits>
 #include <vector>
 #include <unordered_map>
 #include <chrono>
@@ -22,6 +23,16 @@
 #define MAX_NAME_LENGTH 64
 
 
+uint16_t _player_guid = 0;
+uint16_t NewPlayerGUID() {
+	if (_player_guid == std::numeric_limits<uint16_t>::max()) throw std::runtime_error(
+		"Player GUID counter overflow"
+	);
+
+	return _player_guid++;
+}
+
+
 #pragma pack(1)
 typedef struct {
 	float x = 0.0;
@@ -29,7 +40,7 @@ typedef struct {
 	float z = 0.0;
 } Vec3;
 
-enum PlayerStateFlags {
+enum PlayerStateFlags : uint8_t {
 	ALIVE = 1 << 0,
 	IS_SEEKER = 1 << 1,
 	JUMPED = 1 << 2,
@@ -43,11 +54,10 @@ typedef struct {
 	Vec3 position;
 	float yaw;
 	float pitch;
-	char player_state_flags; // PlayerStateFlags bitmask
+	uint8_t player_state_flags; // PlayerStateFlags bitmask
 	Vec3 hook_point;
 } PlayerState;
 
-#pragma pack(1)
 typedef struct {
 	bool ready = false;
 } ServerPlayerData;
@@ -62,12 +72,12 @@ typedef struct {
 
 
 enum PacketType : char {
-	PLAYER_SYNC,
-	PLAYER_SET_NAME,
-	PLAYER_READY,
-	PLAYER_HIDER_CAUGHT,
-	PLAYER_STATS,
-	PLAYER_DISCONNECTED,
+	PLAYER_SYNC, // Client -> Server -> other Clients
+	PLAYER_SET_NAME, // Client -> Server
+	PLAYER_READY, // Client -> Server
+	PLAYER_HIDER_CAUGHT, // Client (seeker) -> Server
+	PLAYER_STATS, // Server -> Clients
+	PLAYER_DISCONNECTED, // Server -> Clients
 
 	// Server -> Client control packets
 	CONTROL_MAP_DATA,
@@ -78,43 +88,32 @@ enum PacketType : char {
 
 #pragma region PACKETS
 
-// Server <-> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SYNC;
-	enet_uint8 player_id;
+	uint8_t player_id;
 	PlayerState player_state;
-} PlayerSyncPacketData;
+} PlayerSyncPacket;
 
-// Client -> Server
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SET_NAME;
 	char name[MAX_NAME_LENGTH];
-} PlayerSetNamePacketData;
+} PlayerSetNamePacket;
 
-// Client -> Server
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::PLAYER_READY;
-} PlayerReadyPacketData;
-
-// Client (seeker) -> Server
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
 	enet_uint8 caught_hider_id;
-} PlayerHiderCaughtPacketData;
+} PlayerHiderCaughtPacket;
 
-// Server -> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_STATS;
 	enet_uint8 player_id;
 	PlayerStats player_stats;
-} PlayerStatsPacketData;
+} PlayerStatsPacket;
 
-// Server <-> Clients
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_DISCONNECTED;
@@ -126,24 +125,9 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL_MAP_DATA;
-} ControlMapDataPacketHeader;
-
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_START;
-} ControlGameStartPacketData;
-
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_START;
+	PacketType packet_type = PacketType::CONTROL_SET_PLAYER_STATE;
 	PlayerState state;
-} ControlSetPlayerStatePacketData;
-
-#pragma pack(1)
-typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_END;
-} ControlGameEndPacketData;
+} ControlSetPlayerStatePacket;
 
 #pragma endregion PACKETS
 
@@ -185,6 +169,8 @@ static inline void HandleReceive(
 	ENetPeer* peer,
 	ENetPacket* packet
 ) {
+	if (packet->dataLength < sizeof(PacketType)) {enet_packet_destroy(packet); return;}
+
 	switch (*((PacketType*)(packet->data + 0))) {
 		case PacketType::PLAYER_SYNC:
 		{
@@ -192,16 +178,16 @@ static inline void HandleReceive(
 				std::find(
 					player_ids.begin(),
 					player_ids.end(),
-					peer->outgoingPeerID
+					peer->incomingPeerID
 				) == player_ids.end()
 			) {
-				player_ids.push_back(peer->outgoingPeerID);
+				player_ids.push_back(peer->incomingPeerID);
 
-				serverside_player_data[peer->outgoingPeerID] = ServerPlayerData{};
+				serverside_player_data[peer->incomingPeerID] = ServerPlayerData{};
 
 				std::cout
 				<< "Player "
-				<< peer->outgoingPeerID
+				<< peer->incomingPeerID
 				<< " connected"
 				<< std::endl;
 
@@ -218,27 +204,23 @@ static inline void HandleReceive(
 				delete[] mdp_data;
 			}
 
-			player_states[peer->outgoingPeerID] = *((PlayerState*)(
+			player_states[peer->incomingPeerID] = *((PlayerState*)(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
-			((PlayerSyncPacketData*)packet->data)->player_id = peer->outgoingPeerID;
-			for (
-				ENetPeer* sync_peer = server->peers;
-				sync_peer < &server->peers[server->peerCount];
-				sync_peer++
-			) {
-				if (sync_peer == peer) continue;
-				enet_peer_send(sync_peer, 0, packet);
+			((PlayerSyncPacketData*)packet->data)->player_id = peer->incomingPeerID;
+			for (uint8_t id : player_ids) {
+				if (&server->peers[id] == peer) continue;
+				enet_peer_send(&server->peers[id], 0, packet);
 			}
 		}
 		break;
 
 		case PacketType::PLAYER_SET_NAME:
 		{
-			if (!player_stats.contains(peer->outgoingPeerID)) player_stats[peer->outgoingPeerID] = PlayerStats{};
+			if (!player_stats.contains(peer->incomingPeerID)) player_stats[peer->incomingPeerID] = PlayerStats{};
 			memcpy(
-				player_stats[peer->outgoingPeerID].name,
+				player_stats[peer->incomingPeerID].name,
 				packet->data + offsetof(PlayerSetNamePacketData, name),
 				MAX_NAME_LENGTH
 			);
@@ -247,7 +229,7 @@ static inline void HandleReceive(
 
 		case PacketType::PLAYER_READY:
 		{
-			serverside_player_data[peer->outgoingPeerID].ready = true;
+			serverside_player_data[peer->incomingPeerID].ready = true;
 
 			int ready_players = 0;
 			for (auto const& [_, ss_player_data] : serverside_player_data) {
@@ -275,7 +257,7 @@ static inline void HandleReceive(
 		case PacketType::PLAYER_HIDER_CAUGHT:
 		{
 			if (!(
-				player_states[peer->outgoingPeerID].player_state_flags
+				player_states[peer->incomingPeerID].player_state_flags
 				& PlayerStateFlags::IS_SEEKER
 			)) return;
 
@@ -290,12 +272,12 @@ static inline void HandleReceive(
 				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
 				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
 			}
-			if (alive_hiders_left != 0) return;
+			if (alive_hiders_left != 0) {enet_packet_destroy(packet); return;}
 
 			// Handle stats
 
-			if (!player_stats.contains(peer->outgoingPeerID)) player_stats[peer->outgoingPeerID] = PlayerStats{};
-			player_stats[peer->outgoingPeerID].seek_time = std::chrono::duration<float>(
+			if (!player_stats.contains(peer->incomingPeerID)) player_stats[peer->incomingPeerID] = PlayerStats{};
+			player_stats[peer->incomingPeerID].seek_time = std::chrono::duration<float>(
 				std::chrono::steady_clock::now() - current_seeker_timer
 			).count();
 
@@ -306,14 +288,14 @@ static inline void HandleReceive(
 
 			// End game if everyone has been a seeker
 			if (current_seeker_id_index == player_ids.size()-1) {
-				for (auto& [_, player_stat] : player_stats) {
+				for (auto& [player_id, player_stat] : player_stats) {
 					player_stat.points = (
 						(player_stat.seek_time - player_stats.size()-1)
 						+ player_stat.last_alive_rounds
 					);
 
 					PlayerStatsPacketData psp_data{};
-					psp_data.player_id = peer->outgoingPeerID;
+					psp_data.player_id = player_id;
 					psp_data.player_stats = player_stat;
 					ENetPacket* player_stats_packet = enet_packet_create(
 						&psp_data,
@@ -360,7 +342,7 @@ static inline void HandleReceive(
 					sizeof(ControlSetPlayerStatePacketData),
 					ENET_PACKET_FLAG_RELIABLE
 				);
-				// TODO: enet_peer_send(PLAYER_ID_PEER, 0, set_state_packet);
+				enet_peer_send(&server->peers[player_id], 0, set_state_packet);
 			}
 
 			enet_packet_destroy(packet);
@@ -524,23 +506,23 @@ try {
 						std::find(
 							player_ids.begin(),
 							player_ids.end(),
-							event.peer->outgoingPeerID
+							event.peer->incomingPeerID
 						) == player_ids.end()
 					) continue;
 
 					std::cout
 					<< "Player "
-					<< event.peer->outgoingPeerID
+					<< event.peer->incomingPeerID
 					<< " disconnected"
 					<< std::endl;
 
-					serverside_player_data.erase(event.peer->outgoingPeerID);
-					player_states.erase(event.peer->outgoingPeerID);
+					serverside_player_data.erase(event.peer->incomingPeerID);
+					player_states.erase(event.peer->incomingPeerID);
 					player_ids.erase(
 						std::remove(
 							player_ids.begin(),
 							player_ids.end(),
-							event.peer->outgoingPeerID
+							event.peer->incomingPeerID
 						),
 						player_ids.end()
 					);
@@ -551,7 +533,7 @@ try {
 					}
 
 					PlayerDisconnectedPacketData pdp_data{};
-					pdp_data.disconnected_player_id = event.peer->outgoingPeerID;
+					pdp_data.disconnected_player_id = event.peer->incomingPeerID;
 					ENetPacket* player_disconnected_packet = enet_packet_create(
 						&pdp_data,
 						sizeof(PlayerDisconnectedPacketData),

@@ -127,7 +127,7 @@ typedef struct {
 
 #pragma pack(1)
 typedef struct {
-	PacketType packet_type = PacketType::CONTROL_GAME_START;
+	PacketType packet_type = PacketType::CONTROL_SET_PLAYER_STATE;
 	PlayerState state;
 } ControlSetPlayerStatePacketData;
 
@@ -198,6 +198,9 @@ int main() {
 		ENET_PACKET_FLAG_RELIABLE
 	);
 	enet_peer_send(server_peer, 0, set_name_packet);
+
+	enet_host_flush(client);
+	std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
 	PlayerReadyPacketData prp_data{};
 	ENetPacket* ready_packet = enet_packet_create(
@@ -311,6 +314,33 @@ int main() {
 				case PacketType::CONTROL_GAME_START:
 				{
 					std::cout << "Game start received" << std::endl;
+				}
+				break;
+
+				case PacketType::CONTROL_SET_PLAYER_STATE:
+				{
+					std::cout << "Set state received:" << std::endl;
+
+					PlayerState received_state = *((PlayerState*)(
+						event.packet->data +
+						offsetof(ControlSetPlayerStatePacketData, state)
+					));
+
+					std::cout << "position x: " << received_state.position.x << std::endl;
+					std::cout << "position y: " << received_state.position.y << std::endl;
+					std::cout << "position z: " << received_state.position.z << std::endl;
+					std::cout << "yaw: " << received_state.yaw << std::endl;
+					std::cout << "pitch: " << received_state.pitch << std::endl;
+					std::cout << "state flags: " << std::endl;
+					std::cout << "\tALIVE: " << ((received_state.player_state_flags & PlayerStateFlags::ALIVE) != 0) << std::endl;
+					std::cout << "\tIS_SEEKER: " << ((received_state.player_state_flags & PlayerStateFlags::IS_SEEKER) != 0) << std::endl;
+					std::cout << "\tJUMPED: " << ((received_state.player_state_flags & PlayerStateFlags::JUMPED) != 0) << std::endl;
+					std::cout << "\tWALLJUMPED: " << ((received_state.player_state_flags & PlayerStateFlags::WALLJUMPED) != 0) << std::endl;
+					std::cout << "\tSLIDING: " << ((received_state.player_state_flags & PlayerStateFlags::SLIDING) != 0) << std::endl;
+					std::cout << "\tFLASHLIGHT: " << ((received_state.player_state_flags & PlayerStateFlags::FLASHLIGHT) != 0) << std::endl;
+					std::cout << "hook_point x: " << received_state.hook_point.x << std::endl;
+					std::cout << "hook_point y: " << received_state.hook_point.y << std::endl;
+					std::cout << "hook_point z: " << received_state.hook_point.z << std::endl;
 				}
 				break;
 

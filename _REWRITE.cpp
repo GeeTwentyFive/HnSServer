@@ -1,0 +1,356 @@
+#include <limits>
+#include <unordered_map>
+#include <chrono>
+#include <string>
+#include <fstream>
+#include <iostream>
+#include <thread>
+
+#include "libs/json.hpp"
+#define ENET_IMPLEMENTATION
+#include "libs/enet.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+
+#define DEFAULT_PORT 55555
+#define MAX_PLAYERS 8
+
+#define MAX_NAME_LENGTH 64
+
+
+uint16_t _player_guid = 0;
+uint16_t NewPlayerGUID() {
+	if (_player_guid == std::numeric_limits<uint16_t>::max()) throw std::runtime_error(
+		"Player GUID counter overflow"
+	);
+
+	return _player_guid++;
+}
+
+
+#pragma pack(1)
+typedef struct {
+	float x = 0.0;
+	float y = 0.0;
+	float z = 0.0;
+} Vec3;
+
+
+enum PlayerStateFlags : uint8_t {
+	ALIVE = 1 << 0,
+	IS_SEEKER = 1 << 1,
+	JUMPED = 1 << 2,
+	WALLJUMPED = 1 << 3,
+	SLIDING = 1 << 4,
+	FLASHLIGHT = 1 << 5
+};
+
+#pragma pack(1)
+typedef struct {
+	Vec3 position;
+	float yaw;
+	float pitch;
+	uint8_t player_state_flags; // PlayerStateFlags bitmask
+	Vec3 hook_point;
+} PlayerState;
+
+typedef struct {
+	bool ready = false;
+        bool was_seeker = false;
+} ServerPlayerData;
+
+#pragma pack(1)
+typedef struct {
+	char name[MAX_NAME_LENGTH] = {0};
+	float seek_time = -1.0;
+	char last_alive_rounds = 0;
+	unsigned char points = 0;
+} PlayerStats;
+
+
+enum PacketType : char {
+	PLAYER_SYNC, // Client -> Server -> other Clients
+	PLAYER_SET_NAME, // Client -> Server
+	PLAYER_READY, // Client -> Server
+	PLAYER_HIDER_CAUGHT, // Client (seeker) -> Server
+	PLAYER_STATS, // Server -> Clients
+	PLAYER_DISCONNECTED, // Server -> Clients
+
+	// Server -> Client control packets
+	CONTROL_MAP_DATA,
+	CONTROL_GAME_START,
+	CONTROL_SET_PLAYER_STATE,
+	CONTROL_GAME_END
+};
+
+#pragma region PACKETS_DATA
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_SYNC;
+	uint8_t player_id;
+	PlayerState player_state;
+} PlayerSyncPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_SET_NAME;
+	char name[MAX_NAME_LENGTH];
+} PlayerSetNamePacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
+	enet_uint8 caught_hider_id;
+} PlayerHiderCaughtPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_STATS;
+	enet_uint8 player_id;
+	PlayerStats player_stats;
+} PlayerStatsPacketData;
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::PLAYER_DISCONNECTED;
+	enet_uint8 disconnected_player_id;
+} PlayerDisconnectedPacketData;
+
+
+// Server -> Clients control packets
+
+#pragma pack(1)
+typedef struct {
+	PacketType packet_type = PacketType::CONTROL_SET_PLAYER_STATE;
+	PlayerState state;
+} ControlSetPlayerStatePacketData;
+
+#pragma endregion PACKETS_DATA
+
+
+ENetHost* server;
+
+std::unordered_map<ENetPeer*, uint16_t> peer_to_player_id(MAX_PLAYERS);
+std::unordered_map<uint16_t, ENetPeer*> player_id_to_peer(MAX_PLAYERS);
+// static inline void RegisterPlayer(ENetPeer* player_peer) {
+//         const uint16_t player_id = NewPlayerGUID();
+//         peer_to_player_id[player_peer] = player_id;
+//         player_id_to_peer[player_id] = player_peer;
+// }
+std::unordered_map<enet_uint8, PlayerState> player_states(MAX_PLAYERS);
+std::unordered_map<enet_uint8, ServerPlayerData> serverside_player_data(MAX_PLAYERS);
+std::unordered_map<enet_uint8, PlayerStats> player_stats(MAX_PLAYERS);
+
+std::string map_data;
+Vec3 hider_spawn = {};
+Vec3 seeker_spawn = {};
+
+bool game_started = false;
+
+std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
+
+
+static inline void HandleReceive(
+	ENetPeer* peer,
+	ENetPacket* packet
+) {
+        // TODO
+}
+
+
+int main(int argc, char* argv[]) {
+try {
+        if (argc < 2) {
+		std::cout << "USAGE: <PATH/TO/MAP.json> [PORT]" << std::endl;
+		return 0;
+	}
+
+	std::string map_path = argv[1];
+	int port = (argc >= 3) ? std::stoi(argv[2]) : DEFAULT_PORT;
+
+
+        // Map loading, parsing, validation, & compression
+
+	std::ifstream map_file_stream(map_path);
+	map_file_stream.seekg(0, std::ios::end);
+	map_data.reserve(map_file_stream.tellg());
+	map_file_stream.seekg(0, std::ios::beg);
+	map_data.assign(
+		std::istreambuf_iterator<char>(map_file_stream),
+		std::istreambuf_iterator<char>()
+	);
+
+	if (!nlohmann::json::accept(map_data)) throw std::runtime_error(
+		std::string("Map ") + map_path + " is not valid JSON"
+	);
+	bool map_has_errors = false;
+	std::string map_errors("");
+	bool hider_spawn_found = false;
+	bool seeker_spawn_found = false;
+	nlohmann::json _map_data = nlohmann::json::parse(map_data);
+	if (!_map_data.is_array()) throw std::runtime_error(
+		std::string("Map ") + map_path + " root is not JSON array"
+	);
+	int map_obj_idx = -1;
+	for (
+		auto map_obj = _map_data.begin();
+		map_obj != _map_data.end();
+		map_obj++
+	) {
+		map_obj_idx++;
+
+		if (!(*map_obj).is_object()) {
+			map_errors += (
+				"Non-object found in root array at index "
+				+ std::to_string(map_obj_idx)
+				+ '\n'
+			);
+			map_has_errors = true;
+			continue;
+		}
+
+		if (
+			!(*map_obj).contains("data") ||
+			!(*map_obj).contains("pos") ||
+			!(*map_obj).contains("rot") ||
+			!(*map_obj).contains("scale") ||
+			!(*map_obj).contains("type")
+		) {
+			map_errors += (
+				"Object in root array at index "
+				+ std::to_string(map_obj_idx)
+				+ " is invalid"
+				+ '\n'
+			);
+			map_has_errors = true;
+			continue;
+		}
+
+		if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Hider")) {
+			hider_spawn_found = true;
+
+			hider_spawn.x = (*map_obj)["pos"][0].get<float>();
+			hider_spawn.y = (*map_obj)["pos"][1].get<float>();
+			hider_spawn.z = (*map_obj)["pos"][2].get<float>();
+		}
+		else if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Seeker")) {
+			seeker_spawn_found = true;
+
+			seeker_spawn.x = (*map_obj)["pos"][0].get<float>();
+			seeker_spawn.y = (*map_obj)["pos"][1].get<float>();
+			seeker_spawn.z = (*map_obj)["pos"][2].get<float>();
+		}
+	}
+	if (!hider_spawn_found) {
+		map_errors += "Hider_Spawn not found\n";
+		map_has_errors = true;
+	}
+	if (!seeker_spawn_found) {
+		map_errors += "Seeker_Spawn not found\n";
+		map_has_errors = true;
+	}
+	if (map_has_errors) throw std::runtime_error(
+		std::string("Map ") + map_path + " has errors:\n"
+		+ map_errors
+	);
+
+	map_data.erase(std::remove_if(map_data.begin(), map_data.end(), []
+	(unsigned char c){
+		if (
+			c == ' ' || c == '\n' || c == '\t'
+		) return true;
+		return false;
+	}), map_data.end());
+
+
+        // Networking
+
+	if (enet_initialize() != 0) throw std::runtime_error("Failed to initialize ENet");
+	atexit(enet_deinitialize);
+
+	ENetAddress address = {0};
+	address.host = ENET_HOST_ANY;
+	address.port = port;
+	server = enet_host_create(&address, MAX_PLAYERS, 1, 0, 0);
+	if (server == nullptr) throw std::runtime_error("Failed to create ENet server");
+	atexit([]{enet_host_destroy(server);});
+
+	std::cout << "Server started on port " << port << std::endl;
+
+	#ifdef _WIN32
+	timeBeginPeriod(1);
+	atexit([]{timeEndPeriod(1);});
+	#endif
+
+        ENetEvent event;
+        for (;;) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+                while (enet_host_service(server, &event, 0) > 0) {
+                        switch (event.type) {
+                                default: break;
+
+                                case ENET_EVENT_TYPE_CONNECT:
+                                {
+                                        if (game_started) {
+						enet_peer_disconnect(event.peer, 0);
+						enet_host_flush(server);
+						enet_peer_reset(event.peer);
+						continue;
+					}
+                                }
+                                break;
+
+                                case ENET_EVENT_TYPE_RECEIVE:
+                                {
+                                        HandleReceive(event.peer, event.packet);
+                                }
+                                break;
+
+                                case ENET_EVENT_TYPE_DISCONNECT:
+                                case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
+                                {
+                                        if (!peer_to_player_id.contains(event.peer)) continue;
+
+                                        const uint16_t player_id = peer_to_player_id[event.peer];
+
+                                        std::cout
+                                        << "Player "
+                                        << player_id
+                                        << " disconnected"
+                                        << std::endl;
+
+                                        serverside_player_data.erase(player_id);
+                                        player_states.erase(player_id);
+                                        player_id_to_peer.erase(player_id);
+                                        peer_to_player_id.erase(event.peer);
+
+                                        if (peer_to_player_id.size() == 0) {
+                                                std::cout << "All players left, shutting down..." << std::endl;
+						exit(0);
+                                        }
+
+                                        PlayerDisconnectedPacketData pdp_data{};
+					pdp_data.disconnected_player_id = player_id;
+					ENetPacket* player_disconnected_packet = enet_packet_create(
+						&pdp_data,
+						sizeof(PlayerDisconnectedPacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					enet_host_broadcast(server, 0, player_disconnected_packet);
+                                }
+                                break;
+                        }
+                }
+        }
+
+        return 0;
+} catch (const std::exception& e) {
+	std::cout << "ERROR: " << e.what() << std::endl;
+	exit(1);
+}
+}
