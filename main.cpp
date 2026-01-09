@@ -272,18 +272,19 @@ static inline void HandleReceive(
 				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
 				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
 			}
-			if (alive_hiders_left != 0) {enet_packet_destroy(packet); return;}
+			if (alive_hiders_left != 0) {
+				enet_packet_destroy(packet);
+				return;
+			}
 
 			// Handle stats
 
-			if (!player_stats.contains(peer->incomingPeerID)) player_stats[peer->incomingPeerID] = PlayerStats{};
 			player_stats[peer->incomingPeerID].seek_time = std::chrono::duration<float>(
 				std::chrono::steady_clock::now() - current_seeker_timer
 			).count();
 
 			current_seeker_timer = std::chrono::steady_clock::now();
 
-			if (!player_stats.contains(caught_hider_id)) player_stats[caught_hider_id] = PlayerStats{};
 			player_stats[caught_hider_id].last_alive_rounds++;
 
 			// End game if everyone has been a seeker
@@ -320,9 +321,11 @@ static inline void HandleReceive(
 				exit(0);
 			}
 
-			current_seeker_id_index++;
 
 			// Advance round
+
+			current_seeker_id_index++;
+
 			for (auto& [player_id, player_state] : player_states) {
 				if (player_id == player_ids[current_seeker_id_index]) {
 					player_state.player_state_flags |= PlayerStateFlags::IS_SEEKER;
@@ -344,6 +347,7 @@ static inline void HandleReceive(
 				);
 				enet_peer_send(&server->peers[player_id], 0, set_state_packet);
 			}
+
 
 			enet_packet_destroy(packet);
 		}

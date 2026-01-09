@@ -142,7 +142,7 @@ std::unordered_map<PlayerID, ENetPeer*> player_id_to_peer(MAX_PLAYERS);
 
 std::unordered_map<PlayerID, PlayerState> player_states(MAX_PLAYERS);
 std::unordered_map<PlayerID, ServerPlayerData> serverside_player_data(MAX_PLAYERS);
-std::unordered_map<PlayerID, PlayerStats> player_stats(MAX_PLAYERS);
+std::unordered_map<PlayerID, PlayerStats> players_stats(MAX_PLAYERS);
 
 std::string map_data;
 Vec3 hider_spawn = {};
@@ -171,7 +171,7 @@ static inline void HandleReceive(
                                 player_id_to_peer[player_id] = peer;
 
                                 serverside_player_data[player_id] = ServerPlayerData{};
-                                player_stats[player_id] = PlayerStats{};
+                                players_stats[player_id] = PlayerStats{};
 
                                 std::cout
 				<< "Player "
@@ -209,7 +209,7 @@ static inline void HandleReceive(
                 case PacketType::PLAYER_SET_NAME:
                 {
                         memcpy(
-                                player_stats[peer_to_player_id[peer]].name,
+                                players_stats[peer_to_player_id[peer]].name,
                                 packet->data + offsetof(PlayerSetNamePacketData, name),
                                 MAX_NAME_LENGTH
                         );
@@ -249,7 +249,90 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_HIDER_CAUGHT:
                 {
+                        const PlayerID player_id = peer_to_player_id[peer];
+
+
+                        if (!(
+                                player_states[player_id].player_state_flags
+				& PlayerStateFlags::IS_SEEKER
+                        )) {
+                                enet_packet_destroy(packet);
+                                return;
+                        }
+
+
+                        enet_uint8 caught_hider_id = *((enet_uint8*)(
+				packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
+			));
+
+			player_states[caught_hider_id].player_state_flags &= ~PlayerStateFlags::ALIVE;
+
+			int alive_hiders_left = 0;
+			for (auto const& [_, player_state] : player_states) {
+				if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
+				if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
+			}
+			if (alive_hiders_left != 0) {
+				enet_packet_destroy(packet);
+				return;
+			}
+
+
+                        players_stats[player_id].seek_time = std::chrono::duration<float>(
+				std::chrono::steady_clock::now() - current_seeker_timer
+			).count();
+
+			current_seeker_timer = std::chrono::steady_clock::now();
+
+                        serverside_player_data[player_id].was_seeker = true;
+
+			players_stats[caught_hider_id].last_alive_rounds++;
+
+
+                        // End game if everyone has been a seeker
+                        int done_seekers_count = 0;
+                        for (auto const& [_, ss_player_data] : serverside_player_data) {
+                                if (ss_player_data.was_seeker) done_seekers_count++;
+                        }
+                        if (done_seekers_count == peer_to_player_id.size()) {
+                                for (auto& [player_id, player_stats] : players_stats) {
+                                        player_stats.points = (
+						(player_stats.seek_time - players_stats.size()-1)
+						+ player_stats.last_alive_rounds
+					);
+
+                                        PlayerStatsPacketData psp_data{};
+                                        psp_data.player_id = player_id;
+					psp_data.player_stats = player_stats;
+					ENetPacket* player_stats_packet = enet_packet_create(
+						&psp_data,
+						sizeof(PlayerStatsPacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					enet_host_broadcast(server, 0, player_stats_packet);
+                                }
+
+				ENetPacket* control_game_end_packet = enet_packet_create(
+					std::array<char, 1>{PacketType::CONTROL_GAME_END}.data(),
+					sizeof(PacketType),
+					ENET_PACKET_FLAG_RELIABLE
+				);
+				enet_host_broadcast(server, 0, control_game_end_packet);
+
+				enet_host_flush(server);
+
+				std::cout << "Game ended, shutting down..." << std::endl;
+
+				exit(0);
+                        }
+
+
+                        // Advance round
+
                         // TODO
+
+
+                        enet_packet_destroy(packet);
                 }
                 break;
         }
@@ -418,8 +501,10 @@ try {
                                         << " disconnected"
                                         << std::endl;
 
-                                        serverside_player_data.erase(player_id);
                                         player_states.erase(player_id);
+                                        serverside_player_data.erase(player_id);
+                                        players_stats.erase(player_id);
+
                                         player_id_to_peer.erase(player_id);
                                         peer_to_player_id.erase(event.peer);
 
