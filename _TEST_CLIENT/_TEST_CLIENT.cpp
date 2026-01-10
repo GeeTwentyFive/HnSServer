@@ -14,6 +14,9 @@
 #define MAX_NAME_LENGTH 64
 
 
+typedef uint16_t PlayerID;
+
+
 #pragma pack(1)
 typedef struct {
 	float x = 0.0;
@@ -74,7 +77,7 @@ enum PacketType : char {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SYNC;
-	uint8_t player_id;
+	PlayerID player_id;
 	PlayerState player_state;
 } PlayerSyncPacketData;
 
@@ -87,20 +90,20 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
-	enet_uint8 caught_hider_id;
+	PlayerID caught_hider_id;
 } PlayerHiderCaughtPacketData;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_STATS;
-	enet_uint8 player_id;
+	PlayerID player_id;
 	PlayerStats player_stats;
 } PlayerStatsPacketData;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_DISCONNECTED;
-	enet_uint8 disconnected_player_id;
+	PlayerID disconnected_player_id;
 } PlayerDisconnectedPacketData;
 
 
