@@ -229,6 +229,8 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_READY:
                 {
+			if (game_started) break;
+
                         const PlayerID player_id = peer_to_player_id[peer];
 
                         serverside_player_data[player_id].ready = true;
@@ -336,12 +338,34 @@ static inline void HandleReceive(
                                 if (ss_player_data.was_seeker) done_seekers_count++;
                         }
                         if (done_seekers_count == peer_to_player_id.size()) {
-				// TODO: Sort seek times into player id -> seek time placement map
-				//std::unordered_map<PlayerID, float> seek_time_placements;
+				std::vector<std::pair<PlayerID, float>> seek_times_sorted;
+				seek_times_sorted.reserve(players_stats.size());
+				for (auto const& [player_id, player_stats] : players_stats) {
+					seek_times_sorted.push_back({
+						player_id,
+						player_stats.seek_time
+					});
+				}
+				std::sort(
+					seek_times_sorted.begin(),
+					seek_times_sorted.end(),
+					[](
+						const std::pair<PlayerID, float>& st1,
+						const std::pair<PlayerID, float>& st2
+					){
+						return st1.second < st2.second;
+					}
+				);
+				std::unordered_map<PlayerID, int> seek_time_placements;
+				seek_time_placements.reserve(players_stats.size());
+				for (int i = 0; i < players_stats.size(); i++) {
+					seek_time_placements[seek_times_sorted[i].first] = i;
+				}
 
                                 for (auto& [player_id, player_stats] : players_stats) {
+					// points = (player_count - seek_placement - 1) + last_alive_rounds
                                         player_stats.points = (
-						(player_stats.seek_time - (players_stats.size()-1)) // TODO
+						(players_stats.size() - seek_time_placements[player_id] - 1)
 						+ player_stats.last_alive_rounds
 					);
 
