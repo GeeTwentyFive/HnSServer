@@ -22,6 +22,18 @@
 #define MAX_NAME_LENGTH 64
 
 
+typedef uint16_t PlayerID;
+
+PlayerID _player_GUID = 0;
+static inline const PlayerID NewPlayerGUID() {
+	if (_player_GUID == std::numeric_limits<PlayerID>::max()) throw std::runtime_error(
+		"Player GUID counter overflow"
+	);
+
+	return _player_GUID++;
+}
+
+
 #pragma pack(1)
 typedef struct {
 	float x = 0.0;
@@ -82,7 +94,7 @@ enum PacketType : char {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_SYNC;
-	uint8_t player_id;
+	PlayerID player_id;
 	PlayerState player_state;
 } PlayerSyncPacketData;
 
@@ -95,20 +107,20 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_HIDER_CAUGHT;
-	enet_uint8 caught_hider_id;
+	PlayerID caught_hider_id;
 } PlayerHiderCaughtPacketData;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_STATS;
-	enet_uint8 player_id;
+	PlayerID player_id;
 	PlayerStats player_stats;
 } PlayerStatsPacketData;
 
 #pragma pack(1)
 typedef struct {
 	PacketType packet_type = PacketType::PLAYER_DISCONNECTED;
-	enet_uint8 disconnected_player_id;
+	PlayerID disconnected_player_id;
 } PlayerDisconnectedPacketData;
 
 
@@ -121,18 +133,6 @@ typedef struct {
 } ControlSetPlayerStatePacketData;
 
 #pragma endregion PACKETS_DATA
-
-
-typedef uint16_t PlayerID;
-
-PlayerID _player_GUID = 0;
-static inline const PlayerID NewPlayerGUID() {
-	if (_player_GUID == std::numeric_limits<PlayerID>::max()) throw std::runtime_error(
-		"Player GUID counter overflow"
-	);
-
-	return _player_GUID++;
-}
 
 
 ENetHost* server;
@@ -166,7 +166,7 @@ static inline void HandleReceive(
                 {
                         if (packet->dataLength < sizeof(PlayerSyncPacketData)) break;
 
-                        if (!peer_to_player_id.contains(peer)) {
+			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) {
                                 const PlayerID player_id = NewPlayerGUID();
 
                                 peer_to_player_id[peer] = player_id;
@@ -218,6 +218,7 @@ static inline void HandleReceive(
                 case PacketType::PLAYER_SET_NAME:
                 {
                         if (packet->dataLength < sizeof(PlayerSetNamePacketData)) break;
+			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) break;
 
                         memcpy(
                                 players_stats[peer_to_player_id[peer]].name,
@@ -230,6 +231,8 @@ static inline void HandleReceive(
                 case PacketType::PLAYER_READY:
                 {
 			if (game_started) break;
+			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) break;
+			if (serverside_player_data[peer_to_player_id[peer]].ready) break;
 
                         const PlayerID player_id = peer_to_player_id[peer];
 
@@ -290,6 +293,7 @@ static inline void HandleReceive(
                 case PacketType::PLAYER_HIDER_CAUGHT:
                 {
                         if (packet->dataLength < sizeof(PlayerHiderCaughtPacketData)) break;
+			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) break;
 
 
                         const PlayerID player_id = peer_to_player_id[peer];
@@ -303,7 +307,7 @@ static inline void HandleReceive(
 
 
                         // Kill caught hider
-                        enet_uint8 caught_hider_id = *((enet_uint8*)(
+                        PlayerID caught_hider_id = *((PlayerID*)(
 				packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
 			));
 
@@ -526,14 +530,14 @@ try {
 			continue;
 		}
 
-		if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Hider")) {
+		if ((*map_obj)["type"].get<std::string>().rfind("Spawn_Hider", 0) == 0) {
 			hider_spawn_found = true;
 
 			hider_spawn.x = (*map_obj)["pos"][0].get<float>();
 			hider_spawn.y = (*map_obj)["pos"][1].get<float>();
 			hider_spawn.z = (*map_obj)["pos"][2].get<float>();
 		}
-		else if ((*map_obj)["type"].get<std::string>().starts_with("Spawn_Seeker")) {
+		else if ((*map_obj)["type"].get<std::string>().rfind("Spawn_Seeker", 0) == 0) {
 			seeker_spawn_found = true;
 
 			seeker_spawn.x = (*map_obj)["pos"][0].get<float>();
@@ -610,7 +614,7 @@ try {
                                 case ENET_EVENT_TYPE_DISCONNECT:
                                 case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
                                 {
-                                        if (!peer_to_player_id.contains(event.peer)) continue;
+					if (peer_to_player_id.find(event.peer) == peer_to_player_id.end()) continue;
 
                                         const PlayerID player_id = peer_to_player_id[event.peer];
 
