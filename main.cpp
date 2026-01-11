@@ -378,6 +378,7 @@ static inline void HandleReceive(
 					player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE
 				) {
 					PlayerHiderCaughtPacketData phcp_data{};
+					phcp_data.caught_hider_id = player_id;
 					ENetPacket* hider_caught_packet = enet_packet_create(
 						&phcp_data,
 						sizeof(PlayerHiderCaughtPacketData),
@@ -417,6 +418,7 @@ static inline void HandleReceive(
 			}
 
                         ((PlayerSyncPacketData*)packet->data)->player_id = player_id;
+			((PlayerSyncPacketData*)packet->data)->player_state = player_states[player_id];
                         // Retransmit sync packet to all other peers except the one who sent it
                         for (auto const& [player_peer, _] : peer_to_player_id) {
                                 if (player_peer == peer) continue;
