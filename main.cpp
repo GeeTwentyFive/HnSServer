@@ -380,6 +380,10 @@ static inline void HandleReceive(
 
                         const PlayerID player_id = peer_to_player_id[peer];
 
+                        player_states[player_id] = *((PlayerState*)(
+				packet->data + offsetof(PlayerSyncPacketData, player_state)
+			));
+
 			if (player_states[player_id].position.y < 0.0) {
 				PlayerHiderCaughtPacketData phcp_data{};
 				ENetPacket* hider_caught_packet = enet_packet_create(
@@ -393,10 +397,6 @@ static inline void HandleReceive(
 				);
 				enet_packet_destroy(hider_caught_packet);
 			}
-
-                        player_states[player_id] = *((PlayerState*)(
-				packet->data + offsetof(PlayerSyncPacketData, player_state)
-			));
 
                         ((PlayerSyncPacketData*)packet->data)->player_id = player_id;
                         // Retransmit sync packet to all other peers except the one who sent it
