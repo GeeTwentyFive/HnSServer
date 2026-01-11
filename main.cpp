@@ -173,10 +173,12 @@ static inline void HandleHiderCaughtPacket(
 	)) return;
 
 
-	// Kill caught hider
 	PlayerID caught_hider_id = *((PlayerID*)(
 		packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
 	));
+
+
+	// Kill caught hider
 	player_states[caught_hider_id].player_state_flags &= ~PlayerStateFlags::ALIVE;
 	{
 	ControlSetPlayerStatePacketData cspsp_data{};
@@ -276,22 +278,9 @@ static inline void HandleHiderCaughtPacket(
 
 	// Advance round (set players states -> respawn)
 
-	{
-	player_states[player_id].player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
-	player_states[player_id].position = hider_spawn;
-	ControlSetPlayerStatePacketData cspsp_data{};
-	cspsp_data.state = player_states[player_id];
-	ENetPacket* set_state_packet = enet_packet_create(
-		&cspsp_data,
-		sizeof(ControlSetPlayerStatePacketData),
-		ENET_PACKET_FLAG_RELIABLE
-	);
-	enet_peer_send(peer, 0, set_state_packet);
-	}
-
 	serverside_player_data[player_id].was_seeker = true;
 
-	PlayerID next_seeker_id;
+	PlayerID next_seeker_id = -1;
 	for (auto const& [player_id, ss_player_data] : serverside_player_data) {
 		if (ss_player_data.was_seeker == false) {
 			next_seeker_id = player_id;
@@ -314,11 +303,9 @@ static inline void HandleHiderCaughtPacket(
 	current_seeker_id = next_seeker_id;
 
 	for (auto& [_player_id, player_state] : player_states) {
-		if (
-			_player_id == player_id ||
-			_player_id == next_seeker_id
-		) continue;
+		if (_player_id == next_seeker_id) continue;
 
+		player_state.player_state_flags &= ~PlayerStateFlags::IS_SEEKER;
 		player_state.player_state_flags |= PlayerStateFlags::ALIVE;
 		player_state.position = hider_spawn;
 		ControlSetPlayerStatePacketData cspsp_data{};
@@ -385,17 +372,48 @@ static inline void HandleReceive(
 			));
 
 			if (player_states[player_id].position.y < 0.0) {
-				PlayerHiderCaughtPacketData phcp_data{};
-				ENetPacket* hider_caught_packet = enet_packet_create(
-					&phcp_data,
-					sizeof(PlayerHiderCaughtPacketData),
-					ENET_PACKET_FLAG_RELIABLE
-				);
-				HandleHiderCaughtPacket(
-					player_id_to_peer[current_seeker_id],
-					hider_caught_packet
-				);
-				enet_packet_destroy(hider_caught_packet);
+				if (
+					player_id != current_seeker_id &&
+					!(player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER) &&
+					player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE
+				) {
+					PlayerHiderCaughtPacketData phcp_data{};
+					ENetPacket* hider_caught_packet = enet_packet_create(
+						&phcp_data,
+						sizeof(PlayerHiderCaughtPacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					HandleHiderCaughtPacket(
+						player_id_to_peer[current_seeker_id],
+						hider_caught_packet
+					);
+					enet_packet_destroy(hider_caught_packet);
+				}
+				else if (
+					player_id == current_seeker_id ||
+					player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER
+				) {
+					player_states[player_id].position = seeker_spawn;
+					ControlSetPlayerStatePacketData cspsp_data{};
+					cspsp_data.state = player_states[player_id];
+					ENetPacket* set_state_packet = enet_packet_create(
+						&cspsp_data,
+						sizeof(ControlSetPlayerStatePacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					enet_peer_send(player_id_to_peer[player_id], 0, set_state_packet);
+				}
+				else {
+					player_states[player_id].position = hider_spawn;
+					ControlSetPlayerStatePacketData cspsp_data{};
+					cspsp_data.state = player_states[player_id];
+					ENetPacket* set_state_packet = enet_packet_create(
+						&cspsp_data,
+						sizeof(ControlSetPlayerStatePacketData),
+						ENET_PACKET_FLAG_RELIABLE
+					);
+					enet_peer_send(player_id_to_peer[player_id], 0, set_state_packet);
+				}
 			}
 
                         ((PlayerSyncPacketData*)packet->data)->player_id = player_id;
