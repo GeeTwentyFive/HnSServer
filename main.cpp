@@ -154,7 +154,6 @@ bool game_started = false;
 PlayerID current_seeker_id;
 std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
-
 #ifdef _HNS_DEBUG
 std::ofstream _DEBUG_LOG("HnSServer.log");
 #endif // _HNS_DEBUG
@@ -164,7 +163,16 @@ static inline void HandleHiderCaughtPacket(
 	ENetPeer* peer,
 	ENetPacket* packet
 ) {
-	if (packet->dataLength < sizeof(PlayerHiderCaughtPacketData)) return;
+	if (packet->dataLength < sizeof(PlayerHiderCaughtPacketData)) {
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Received packet PLAYER_HIDER_CAUGHT size " << packet->dataLength
+			<< " is less than size of PlayerHiderCaughtPacketData " << sizeof(PlayerHiderCaughtPacketData)
+			<< std::endl;
+		#endif // _HNS_DEBUG
+
+		return;
+	}
 	if (peer_to_player_id.find(peer) == peer_to_player_id.end()) return;
 
 
@@ -175,12 +183,32 @@ static inline void HandleHiderCaughtPacket(
 	if (!(
 		player_states[player_id].player_state_flags
 		& PlayerStateFlags::IS_SEEKER
-	)) return;
+	)) {
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Received packet PLAYER_HIDER_CAUGHT sender "
+			<< player_id
+			<< " is found to not be a seeker; dropping"
+			<< std::endl;
+		#endif // _HNS_DEBUG
+
+		return;
+	}
 
 
 	PlayerID caught_hider_id = *((PlayerID*)(
 		packet->data + offsetof(PlayerHiderCaughtPacketData, caught_hider_id)
 	));
+
+
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG
+		<< "Received packet PLAYER_HIDER_CAUGHT from Player "
+		<< player_id
+		<< ", with caught hider ID "
+		<< caught_hider_id
+		<< std::endl;
+	#endif // _HNS_DEBUG
 
 
 	// Kill caught hider
@@ -194,6 +222,30 @@ static inline void HandleHiderCaughtPacket(
 		ENET_PACKET_FLAG_RELIABLE
 	);
 	enet_peer_send(player_id_to_peer[caught_hider_id], 0, set_state_packet);
+
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG
+		<< "Sending packet CONTROL_SET_PLAYER_STATE to "
+		<< caught_hider_id
+		<< " with data:"
+		<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+		<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+		<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+		<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+		<< "\n- yaw: " << cspsp_data.state.yaw
+		<< "\n- pitch: " << cspsp_data.state.pitch
+		<< "\n- flags:"
+		<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+		<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+		<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+		<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+		<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+		<< std::endl;
+	#endif // _HNS_DEBUG
 	}
 
 
@@ -203,6 +255,9 @@ static inline void HandleHiderCaughtPacket(
 		if (player_state.player_state_flags & PlayerStateFlags::IS_SEEKER) continue;
 		if (player_state.player_state_flags & PlayerStateFlags::ALIVE) alive_hiders_left++;
 	}
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG << "alive_hiders_left == " << alive_hiders_left << std::endl;
+	#endif // _HNS_DEBUG
 	if (alive_hiders_left != 0) return;
 
 
@@ -218,13 +273,34 @@ static inline void HandleHiderCaughtPacket(
 
 	players_stats[caught_hider_id].last_alive_rounds++;
 
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG
+		<< "Set/calculated post-round player stats:"
+		<< "\n- seeker " << player_id << " seek time: "
+			<<  players_stats[player_id].seek_time
+		<< "\n- hider " << caught_hider_id << " last alive rounds: "
+			<< std::to_string(players_stats[caught_hider_id].last_alive_rounds)
+		<< std::endl;
+	#endif // _HNS_DEBUG
+
 
 	// End game if everyone has been a seeker
 	int done_seekers_count = 0;
 	for (auto const& [_, ss_player_data] : serverside_player_data) {
 		if (ss_player_data.was_seeker) done_seekers_count++;
 	}
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG
+		<< "done_seekers_count == " << done_seekers_count
+		<< std::endl;
+	#endif // _HNS_DEBUG
 	if (done_seekers_count == peer_to_player_id.size()) {
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Everyone was a seeker; ending game..."
+			<< std::endl;
+		#endif // _HNS_DEBUG
+
 		std::vector<std::pair<PlayerID, float>> seek_times_sorted;
 		seek_times_sorted.reserve(players_stats.size());
 		for (auto const& [player_id, player_stats] : players_stats) {
@@ -255,6 +331,17 @@ static inline void HandleHiderCaughtPacket(
 				+ player_stats.last_alive_rounds
 			);
 
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Final player " << player_id << " stats:"
+				<< "\n- name: " << player_stats.name
+				<< "\n- seek time: " << player_stats.seek_time
+				<< "\n- seek time placement: " << seek_time_placements[player_id]
+				<< "\n- last alive rounds: " << std::to_string(player_stats.last_alive_rounds)
+				<< "\n- points: " << std::to_string(player_stats.points)
+				<< std::endl;
+			#endif // _HNS_DEBUG
+
 			PlayerStatsPacketData psp_data{};
 			psp_data.player_id = player_id;
 			psp_data.player_stats = player_stats;
@@ -264,6 +351,13 @@ static inline void HandleHiderCaughtPacket(
 				ENET_PACKET_FLAG_RELIABLE
 			);
 			enet_host_broadcast(server, 0, player_stats_packet);
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Broadcasting aforementioned stats"
+				<< " with packet PLAYER_STATS " << std::to_string(PacketType::PLAYER_STATS)
+				<< std::endl;
+			#endif // _HNS_DEBUG
 		}
 
 		ENetPacket* control_game_end_packet = enet_packet_create(
@@ -272,6 +366,13 @@ static inline void HandleHiderCaughtPacket(
 			ENET_PACKET_FLAG_RELIABLE
 		);
 		enet_host_broadcast(server, 0, control_game_end_packet);
+
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Broadcasting packet CONTROL_GAME_END "
+			<< PacketType::CONTROL_GAME_END
+			<< std::endl;
+		#endif // _HNS_DEBUG
 
 		enet_host_flush(server);
 
@@ -283,6 +384,10 @@ static inline void HandleHiderCaughtPacket(
 
 	// Advance round (set players states -> respawn)
 
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG << "Advancing to next round..." << std::endl;
+	#endif // _HNS_DEBUG
+
 	serverside_player_data[player_id].was_seeker = true;
 
 	PlayerID next_seeker_id = -1;
@@ -292,6 +397,9 @@ static inline void HandleHiderCaughtPacket(
 			break;
 		}
 	}
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG << "Next seeker ID: " << next_seeker_id << std::endl;
+	#endif // _HNS_DEBUG
 	{
 	player_states[next_seeker_id].player_state_flags |= PlayerStateFlags::IS_SEEKER;
 	player_states[next_seeker_id].player_state_flags |= PlayerStateFlags::ALIVE;
@@ -304,6 +412,30 @@ static inline void HandleHiderCaughtPacket(
 		ENET_PACKET_FLAG_RELIABLE
 	);
 	enet_peer_send(player_id_to_peer[next_seeker_id], 0, set_state_packet);
+
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG
+		<< "Sending packet CONTROL_SET_PLAYER_STATE to "
+		<< next_seeker_id
+		<< " with data:"
+		<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+		<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+		<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+		<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+		<< "\n- yaw: " << cspsp_data.state.yaw
+		<< "\n- pitch: " << cspsp_data.state.pitch
+		<< "\n- flags:"
+		<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+		<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+		<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+		<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+		<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+		<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+		<< std::endl;
+	#endif // _HNS_DEBUG
 	}
 	current_seeker_id = next_seeker_id;
 
@@ -321,6 +453,30 @@ static inline void HandleHiderCaughtPacket(
 			ENET_PACKET_FLAG_RELIABLE
 		);
 		enet_peer_send(player_id_to_peer[_player_id], 0, set_state_packet);
+
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Sending packet CONTROL_SET_PLAYER_STATE to "
+			<< _player_id
+			<< " with data:"
+			<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+			<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+			<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+			<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+			<< "\n- yaw: " << cspsp_data.state.yaw
+			<< "\n- pitch: " << cspsp_data.state.pitch
+			<< "\n- flags:"
+			<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+			<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+			<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+			<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+			<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+			<< std::endl;
+		#endif // _HNS_DEBUG
 	}
 }
 
@@ -329,7 +485,17 @@ static inline void HandleReceive(
 	ENetPeer* peer,
 	ENetPacket* packet
 ) {
-        if (packet->dataLength < sizeof(PacketType)) {enet_packet_destroy(packet); return;}
+        if (packet->dataLength < sizeof(PacketType)) {
+		#ifdef _HNS_DEBUG
+			_DEBUG_LOG
+			<< "Received packet data length " << packet->dataLength
+			<< " is less than size of PacketType: " << sizeof(PacketType)
+			<< std::endl;
+		#endif // _HNS_DEBUG
+
+		enet_packet_destroy(packet);
+		return;
+	}
 
         switch (*((PacketType*)(packet->data + 0))) {
                 default: break;
@@ -342,7 +508,16 @@ static inline void HandleReceive(
 
                 case PacketType::PLAYER_SYNC:
                 {
-                        if (packet->dataLength < sizeof(PlayerSyncPacketData)) break;
+                        if (packet->dataLength < sizeof(PlayerSyncPacketData)) {
+				#ifdef _HNS_DEBUG
+					_DEBUG_LOG
+					<< "Received packet PLAYER_SYNC data size " << packet->dataLength
+					<< " is less than size of PlayerSyncPacketData " << sizeof(PlayerSyncPacketData)
+					<< std::endl;
+				#endif // _HNS_DEBUG
+
+				break;
+			}
 
 			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) {
                                 const PlayerID player_id = NewPlayerGUID();
@@ -368,6 +543,13 @@ static inline void HandleReceive(
 					ENET_PACKET_FLAG_RELIABLE
 				);
 				enet_peer_send(peer, 0, map_data_packet);
+
+				#ifdef _HNS_DEBUG
+					_DEBUG_LOG
+					<< "Sending packet CONTROL_MAP_DATA to player "
+					<< player_id
+					<< std::endl;
+				#endif // _HNS_DEBUG
                         }
 
                         const PlayerID player_id = peer_to_player_id[peer];
@@ -376,12 +558,53 @@ static inline void HandleReceive(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
+			//PLAYER_SYNC
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Received packet PLAYER_SYNC from player "
+				<< player_id
+				<< " with data:"
+				<< "\n- pos X: " << player_states[player_id].position.x
+				<< "\n- pos Y: " << player_states[player_id].position.y
+				<< "\n- pos Z: " << player_states[player_id].position.z
+				<< "\n- yaw: " << player_states[player_id].yaw
+				<< "\n- pitch: " << player_states[player_id].pitch
+				<< "\n- flags:"
+				<< "\n^ - ALIVE: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE) > 0)
+				<< "\n^ - IS_SEEKER: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+				<< "\n^ - JUMPED: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - WALLJUMP: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - SLIDING: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - FLASHLIGHT: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n- hook_point X: " << player_states[player_id].hook_point.x
+				<< "\n- hook_point Y: " << player_states[player_id].hook_point.y
+				<< "\n- hook_point Z: " << player_states[player_id].hook_point.z
+				<< std::endl;
+			#endif // _HNS_DEBUG
+
 			if (player_states[player_id].position.y < 0.0) {
+				#ifdef _HNS_DEBUG
+					_DEBUG_LOG
+					<< "Player "
+					<< player_id
+					<< "'s Y "
+					<< player_states[player_id].position.y
+					<< " is below 0.0"
+					<< std::endl;
+				#endif // _HNS_DEBUG
+
 				if (
 					player_id != current_seeker_id &&
 					!(player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER) &&
 					player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE
 				) {
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Player below Y 0.0 is found to be a hider\n"
+						<< "^ sending PLAYER_HIDER_CAUGHT packet to self as seeker..."
+						<< std::endl;
+					#endif // _HNS_DEBUG
+
 					PlayerHiderCaughtPacketData phcp_data{};
 					phcp_data.caught_hider_id = player_id;
 					ENetPacket* hider_caught_packet = enet_packet_create(
@@ -399,6 +622,12 @@ static inline void HandleReceive(
 					player_id == current_seeker_id ||
 					player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER
 				) {
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Player below Y 0.0 is found to be a seeker"
+						<< std::endl;
+					#endif // _HNS_DEBUG
+
 					player_states[player_id].position = seeker_spawn;
 					ControlSetPlayerStatePacketData cspsp_data{};
 					cspsp_data.state = player_states[player_id];
@@ -408,8 +637,38 @@ static inline void HandleReceive(
 						ENET_PACKET_FLAG_RELIABLE
 					);
 					enet_peer_send(player_id_to_peer[player_id], 0, set_state_packet);
+
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Sending packet CONTROL_SET_PLAYER_STATE to "
+						<< player_id
+						<< " with data:"
+						<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+						<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+						<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+						<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+						<< "\n- yaw: " << cspsp_data.state.yaw
+						<< "\n- pitch: " << cspsp_data.state.pitch
+						<< "\n- flags:"
+						<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+						<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+						<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+						<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+						<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+						<< std::endl;
+					#endif // _HNS_DEBUG
 				}
 				else {
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Player below Y 0.0 is found to be a spectator"
+						<< std::endl;
+					#endif // _HNS_DEBUG
+	
 					player_states[player_id].position = hider_spawn;
 					ControlSetPlayerStatePacketData cspsp_data{};
 					cspsp_data.state = player_states[player_id];
@@ -419,6 +678,30 @@ static inline void HandleReceive(
 						ENET_PACKET_FLAG_RELIABLE
 					);
 					enet_peer_send(player_id_to_peer[player_id], 0, set_state_packet);
+
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Sending packet CONTROL_SET_PLAYER_STATE to "
+						<< player_id
+						<< " with data:"
+						<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+						<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+						<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+						<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+						<< "\n- yaw: " << cspsp_data.state.yaw
+						<< "\n- pitch: " << cspsp_data.state.pitch
+						<< "\n- flags:"
+						<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+						<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+						<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+						<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+						<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+						<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+						<< std::endl;
+					#endif // _HNS_DEBUG
 				}
 			}
 
@@ -437,19 +720,42 @@ static inline void HandleReceive(
                                         )
                                 );
                         }
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Retransmitting the (possibly server-modified) sync packet"
+				<< " to all other peers except the one who sent it..."
+				<< std::endl;
+			#endif // _HNS_DEBUG
                 }
                 break;
 
                 case PacketType::PLAYER_SET_NAME:
                 {
-                        if (packet->dataLength < sizeof(PlayerSetNamePacketData)) break;
 			if (peer_to_player_id.find(peer) == peer_to_player_id.end()) break;
+                        if (packet->dataLength < sizeof(PlayerSetNamePacketData)) {
+				#ifdef _HNS_DEBUG
+					_DEBUG_LOG
+					<< "Received packet PLAYER_SET_NAME size " << packet->dataLength
+					<< " is less than size of PlayerSetNamePacketData " << sizeof(PlayerSetNamePacketData)
+					<< std::endl;
+				#endif // _HNS_DEBUG
+
+				break;
+			}
 
                         memcpy(
                                 players_stats[peer_to_player_id[peer]].name,
                                 packet->data + offsetof(PlayerSetNamePacketData, name),
                                 MAX_NAME_LENGTH
                         );
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Received packet PLAYER_SET_NAME with data: "
+				<< players_stats[peer_to_player_id[peer]].name
+				<< std::endl;
+			#endif // _HNS_DEBUG
                 }
                 break;
 
@@ -461,17 +767,43 @@ static inline void HandleReceive(
 
                         const PlayerID player_id = peer_to_player_id[peer];
 
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Received packet PLAYER_READY from player "
+				<< player_id
+				<< std::endl;
+			#endif // _HNS_DEBUG
+
                         serverside_player_data[player_id].ready = true;
 
                         int ready_players = 0;
 			for (auto const& [_, ss_player_data] : serverside_player_data) {
 				if (ss_player_data.ready) ready_players++;
 			}
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "ready_players == "
+				<< ready_players
+				<< std::endl;
+			#endif // _HNS_DEBUG
 			if (ready_players != peer_to_player_id.size()) break;
 
                         // Everyone is ready; start game
 
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Everyone is ready; starting game..."
+				<< std::endl;
+			#endif // _HNS_DEBUG
+
 			current_seeker_id = peer_to_player_id.begin()->second;
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "First chosen seeker id: "
+				<< current_seeker_id
+				<< std::endl;
+			#endif // _HNS_DEBUG
 
 			{
                         player_states[current_seeker_id].player_state_flags |= PlayerStateFlags::IS_SEEKER;
@@ -485,6 +817,30 @@ static inline void HandleReceive(
                                 ENET_PACKET_FLAG_RELIABLE
                         );
                         enet_peer_send(player_id_to_peer[current_seeker_id], 0, set_state_packet);
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Sending packet CONTROL_SET_PLAYER_STATE to seeker player "
+				<< current_seeker_id
+				<< " with data:"
+				<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+				<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+				<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+				<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+				<< "\n- yaw: " << cspsp_data.state.yaw
+				<< "\n- pitch: " << cspsp_data.state.pitch
+				<< "\n- flags:"
+				<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+				<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+				<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+				<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+				<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+				<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+				<< std::endl;
+			#endif // _HNS_DEBUG
 			}
 
 			for (auto& [_player_id, player_state] : player_states) {
@@ -501,6 +857,30 @@ static inline void HandleReceive(
                                         ENET_PACKET_FLAG_RELIABLE
                                 );
                                 enet_peer_send(player_id_to_peer[_player_id], 0, set_state_packet);
+
+				#ifdef _HNS_DEBUG
+					_DEBUG_LOG
+					<< "Sending packet CONTROL_SET_PLAYER_STATE to player "
+					<< _player_id
+					<< " with data:"
+					<< "\n- packet type: " << std::to_string(cspsp_data.packet_type)
+					<< "\n- pos X (seeker spawn X): " << cspsp_data.state.position.x
+					<< "\n- pos Y (seeker spawn Y): " << cspsp_data.state.position.y
+					<< "\n- pos Z (seeker spawn Z): " << cspsp_data.state.position.z
+					<< "\n- yaw: " << cspsp_data.state.yaw
+					<< "\n- pitch: " << cspsp_data.state.pitch
+					<< "\n- flags:"
+					<< "\n^ - ALIVE: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::ALIVE) > 0)
+					<< "\n^ - IS_SEEKER: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+					<< "\n^ - JUMPED: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+					<< "\n^ - WALLJUMP: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+					<< "\n^ - SLIDING: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+					<< "\n^ - FLASHLIGHT: " << ((cspsp_data.state.player_state_flags & PlayerStateFlags::JUMPED) > 0)
+					<< "\n- hook_point X: " << cspsp_data.state.hook_point.x
+					<< "\n- hook_point Y: " << cspsp_data.state.hook_point.y
+					<< "\n- hook_point Z: " << cspsp_data.state.hook_point.z
+					<< std::endl;
+				#endif // _HNS_DEBUG
                         }
 
 			current_seeker_timer = std::chrono::steady_clock::now();
@@ -512,6 +892,12 @@ static inline void HandleReceive(
 				ENET_PACKET_FLAG_RELIABLE
 			);
 			enet_host_broadcast(server, 0, game_start_packet);
+
+			#ifdef _HNS_DEBUG
+				_DEBUG_LOG
+				<< "Broadcasting packet CONTROL_GAME_START..."
+				<< std::endl;
+			#endif // _HNS_DEBUG
                 }
                 break;
         }
@@ -522,13 +908,6 @@ static inline void HandleReceive(
 
 int main(int argc, char* argv[]) {
 try {
-#ifdef _HNS_DEBUG
-	std::cout << "RUNNING DEBUG BUILD; PERFORMANCE WILL BE LOWER" << std::endl;
-	std::time_t start_time = std::time(nullptr);
-	_DEBUG_LOG << std::asctime(std::localtime(&start_time)) << std::endl;
-#endif // _HNS_DEBUG
-
-
         if (argc < 2) {
 		std::cout << "USAGE: <PATH/TO/MAP.json> [PORT]" << std::endl;
 		return 0;
@@ -537,12 +916,17 @@ try {
 	std::string map_path = argv[1];
 	int port = (argc >= 3) ? std::stoi(argv[2]) : DEFAULT_PORT;
 
+	#ifdef _HNS_DEBUG
+		std::cout << "RUNNING DEBUG BUILD; PERFORMANCE WILL BE LOWER" << std::endl;
+		std::cout.rdbuf(_DEBUG_LOG.rdbuf());
+		std::time_t start_time = std::time(nullptr);
+		_DEBUG_LOG << std::asctime(std::localtime(&start_time)) << std::endl;
+	#endif // _HNS_DEBUG
 
-#ifdef _HNS_DEBUG
-	_DEBUG_LOG << "map_path: " << map_path << std::endl;
-	_DEBUG_LOG << "port: " << port << std::endl;
-#endif // _HNS_DEBUG
-
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG << "map_path: " << map_path << std::endl;
+		_DEBUG_LOG << "port: " << port << std::endl;
+	#endif // _HNS_DEBUG
 
         // Map loading, parsing, validation, & compression
 
@@ -555,10 +939,10 @@ try {
 		std::istreambuf_iterator<char>()
 	);
 
-#ifdef _HNS_DEBUG
-	_DEBUG_LOG << "map_data size: " << map_data.size() << std::endl;
-	_DEBUG_LOG << "map_data: \n'''\n" << map_data << "\n'''\n" << std::endl;
-#endif // _HNS_DEBUG
+	#ifdef _HNS_DEBUG
+		_DEBUG_LOG << "map_data size: " << map_data.size() << std::endl;
+		_DEBUG_LOG << "map_data: \n'''\n" << map_data << "\n'''\n" << std::endl;
+	#endif // _HNS_DEBUG
 
 	if (!nlohmann::json::accept(map_data)) throw std::runtime_error(
 		std::string("Map ") + map_path + " is not valid JSON"
@@ -642,12 +1026,10 @@ try {
 		return false;
 	}), map_data.end());
 
-
 #ifdef _HNS_DEBUG
 	_DEBUG_LOG << "compressed map_data size: " << map_data.size() << std::endl;
 	_DEBUG_LOG << "compressed map_data: \n'''\n" << map_data << "\n'''\n" << std::endl;
 #endif // _HNS_DEBUG
-
 
         // Networking
 
@@ -682,29 +1064,62 @@ try {
 
                                 case ENET_EVENT_TYPE_CONNECT:
                                 {
+					#ifdef _HNS_DEBUG
+						char _DEBUG_ip[64] = {0};
+						enet_address_get_host_ip(
+							&event.peer->address,
+							_DEBUG_ip,
+							sizeof(_DEBUG_ip)
+						);
+						_DEBUG_LOG
+						<< "Received ENET_EVENT_TYPE_CONNECT from "
+						<< _DEBUG_ip
+						<< std::endl;
+					#endif // _HNS_DEBUG
+
                                         if (game_started) {
 						enet_peer_disconnect(event.peer, 0);
 						enet_host_flush(server);
 						enet_peer_reset(event.peer);
 						continue;
 					}
-
-					// char ip_str[INET_ADDRSTRLEN];
-					// enet_address_get_host()
-
-					// #ifdef _HNS_DEBUG
-					// 	_DEBUG_LOG << "Received ENET_EVENT_TYPE_CONNECT from " << std::endl;
-					// #endif // _HNS_DEBUG
                                 }
                                 break;
 
                                 case ENET_EVENT_TYPE_RECEIVE:
                                 {
+					#ifdef _HNS_DEBUG
+						char _DEBUG_ip[64] = {0};
+						enet_address_get_host_ip(
+							&event.peer->address,
+							_DEBUG_ip,
+							sizeof(_DEBUG_ip)
+						);
+						_DEBUG_LOG
+						<< "Received ENET_EVENT_TYPE_RECEIVE from "
+						<< _DEBUG_ip
+						<< std::endl;
+					#endif // _HNS_DEBUG
+
                                         HandleReceive(event.peer, event.packet);
                                 }
                                 break;
 
                                 case ENET_EVENT_TYPE_DISCONNECT:
+				#ifdef _HNS_DEBUG
+					{
+					char _DEBUG_ip[64] = {0};
+					enet_address_get_host_ip(
+						&event.peer->address,
+						_DEBUG_ip,
+						sizeof(_DEBUG_ip)
+					);
+					_DEBUG_LOG
+					<< "Received ENET_EVENT_TYPE_DISCONNECT from "
+					<< _DEBUG_ip
+					<< std::endl;
+					}
+				#endif // _HNS_DEBUG
                                 case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
                                 {
 					if (peer_to_player_id.find(event.peer) == peer_to_player_id.end()) continue;
@@ -743,6 +1158,14 @@ try {
 						ENET_PACKET_FLAG_RELIABLE
 					);
 					enet_host_broadcast(server, 0, player_disconnected_packet);
+
+					#ifdef _HNS_DEBUG
+						_DEBUG_LOG
+						<< "Broadcasting packet PLAYER_DISCONNECTED with data:\n"
+						<< "- Packet type: " << std::to_string(pdp_data.packet_type) << "\n"
+						<< "- Disconnected Player ID: " << pdp_data.disconnected_player_id
+						<< std::endl;
+					#endif // _HNS_DEBUG
                                 }
                                 break;
                         }
