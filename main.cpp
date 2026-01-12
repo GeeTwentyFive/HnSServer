@@ -155,6 +155,11 @@ PlayerID current_seeker_id;
 std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
 
+#ifdef _HNS_DEBUG
+std::ofstream _DEBUG_LOG("HnSServer.log");
+#endif // _HNS_DEBUG
+
+
 static inline void HandleHiderCaughtPacket(
 	ENetPeer* peer,
 	ENetPacket* packet
@@ -517,6 +522,13 @@ static inline void HandleReceive(
 
 int main(int argc, char* argv[]) {
 try {
+#ifdef _HNS_DEBUG
+	std::cout << "RUNNING DEBUG BUILD; PERFORMANCE WILL BE LOWER" << std::endl;
+	std::time_t start_time = std::time(nullptr);
+	_DEBUG_LOG << std::asctime(std::localtime(&start_time)) << std::endl;
+#endif // _HNS_DEBUG
+
+
         if (argc < 2) {
 		std::cout << "USAGE: <PATH/TO/MAP.json> [PORT]" << std::endl;
 		return 0;
@@ -524,6 +536,12 @@ try {
 
 	std::string map_path = argv[1];
 	int port = (argc >= 3) ? std::stoi(argv[2]) : DEFAULT_PORT;
+
+
+#ifdef _HNS_DEBUG
+	_DEBUG_LOG << "map_path: " << map_path << std::endl;
+	_DEBUG_LOG << "port: " << port << std::endl;
+#endif // _HNS_DEBUG
 
 
         // Map loading, parsing, validation, & compression
@@ -536,6 +554,11 @@ try {
 		std::istreambuf_iterator<char>(map_file_stream),
 		std::istreambuf_iterator<char>()
 	);
+
+#ifdef _HNS_DEBUG
+	_DEBUG_LOG << "map_data size: " << map_data.size() << std::endl;
+	_DEBUG_LOG << "map_data: \n'''\n" << map_data << "\n'''\n" << std::endl;
+#endif // _HNS_DEBUG
 
 	if (!nlohmann::json::accept(map_data)) throw std::runtime_error(
 		std::string("Map ") + map_path + " is not valid JSON"
@@ -620,6 +643,12 @@ try {
 	}), map_data.end());
 
 
+#ifdef _HNS_DEBUG
+	_DEBUG_LOG << "compressed map_data size: " << map_data.size() << std::endl;
+	_DEBUG_LOG << "compressed map_data: \n'''\n" << map_data << "\n'''\n" << std::endl;
+#endif // _HNS_DEBUG
+
+
         // Networking
 
 	if (enet_initialize() != 0) throw std::runtime_error("Failed to initialize ENet");
@@ -639,6 +668,10 @@ try {
 	atexit([]{timeEndPeriod(1);});
 	#endif
 
+#ifdef _HNS_DEBUG
+	_DEBUG_LOG << "\nSERVER STARTED\n" << std::endl;
+#endif // _HNS_DEBUG
+
         ENetEvent event;
         for (;;) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -655,6 +688,13 @@ try {
 						enet_peer_reset(event.peer);
 						continue;
 					}
+
+					// char ip_str[INET_ADDRSTRLEN];
+					// enet_address_get_host()
+
+					// #ifdef _HNS_DEBUG
+					// 	_DEBUG_LOG << "Received ENET_EVENT_TYPE_CONNECT from " << std::endl;
+					// #endif // _HNS_DEBUG
                                 }
                                 break;
 

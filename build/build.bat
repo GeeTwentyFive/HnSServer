@@ -1,1 +1,1 @@
-g++ -O2 ../main.cpp -lws2_32 -lwinmm -o HnSServer.exe
+g++ -O2 ../main.cpp -lws2_32 -lwinmm %* -o HnSServer.exe

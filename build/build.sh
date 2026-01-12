@@ -1,1 +1,1 @@
-g++ -O2 ../main.cpp -o HnSServer
+g++ -O2 ../main.cpp $* -o HnSServer
