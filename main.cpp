@@ -22,6 +22,8 @@
 
 #define MAX_NAME_LENGTH 64
 
+#define ROUND_TRANSITION_COOLDOWN 2.0
+
 
 typedef uint16_t PlayerID;
 
@@ -154,6 +156,8 @@ bool game_started = false;
 PlayerID current_seeker_id;
 std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
+std::chrono::time_point<std::chrono::steady_clock> round_transition_cooldown;
+
 #ifdef _HNS_DEBUG
 std::ofstream _DEBUG_LOG("HnSServer.log");
 #endif // _HNS_DEBUG
@@ -213,6 +217,7 @@ static inline void HandleHiderCaughtPacket(
 
 	// Kill caught hider
 	player_states[caught_hider_id].player_state_flags &= ~PlayerStateFlags::ALIVE;
+	player_states[caught_hider_id].position = hider_spawn;
 	{
 	ControlSetPlayerStatePacketData cspsp_data{};
 	cspsp_data.state = player_states[caught_hider_id];
@@ -259,6 +264,9 @@ static inline void HandleHiderCaughtPacket(
 		_DEBUG_LOG << "alive_hiders_left == " << alive_hiders_left << std::endl;
 	#endif // _HNS_DEBUG
 	if (alive_hiders_left != 0) return;
+
+
+	round_transition_cooldown = std::chrono::steady_clock::now();
 
 
 	// Set/calculate players stats
@@ -558,31 +566,36 @@ static inline void HandleReceive(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
 
-			//PLAYER_SYNC
-			#ifdef _HNS_DEBUG
-				_DEBUG_LOG
-				<< "Received packet PLAYER_SYNC from player "
-				<< player_id
-				<< " with data:"
-				<< "\n- pos X: " << player_states[player_id].position.x
-				<< "\n- pos Y: " << player_states[player_id].position.y
-				<< "\n- pos Z: " << player_states[player_id].position.z
-				<< "\n- yaw: " << player_states[player_id].yaw
-				<< "\n- pitch: " << player_states[player_id].pitch
-				<< "\n- flags:"
-				<< "\n^ - ALIVE: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE) > 0)
-				<< "\n^ - IS_SEEKER: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
-				<< "\n^ - JUMPED: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
-				<< "\n^ - WALLJUMP: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
-				<< "\n^ - SLIDING: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
-				<< "\n^ - FLASHLIGHT: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
-				<< "\n- hook_point X: " << player_states[player_id].hook_point.x
-				<< "\n- hook_point Y: " << player_states[player_id].hook_point.y
-				<< "\n- hook_point Z: " << player_states[player_id].hook_point.z
-				<< std::endl;
-			#endif // _HNS_DEBUG
+			// //PLAYER_SYNC
+			// #ifdef _HNS_DEBUG
+			// 	_DEBUG_LOG
+			// 	<< "Received packet PLAYER_SYNC from player "
+			// 	<< player_id
+			// 	<< " with data:"
+			// 	<< "\n- pos X: " << player_states[player_id].position.x
+			// 	<< "\n- pos Y: " << player_states[player_id].position.y
+			// 	<< "\n- pos Z: " << player_states[player_id].position.z
+			// 	<< "\n- yaw: " << player_states[player_id].yaw
+			// 	<< "\n- pitch: " << player_states[player_id].pitch
+			// 	<< "\n- flags:"
+			// 	<< "\n^ - ALIVE: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE) > 0)
+			// 	<< "\n^ - IS_SEEKER: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER) > 0)
+			// 	<< "\n^ - JUMPED: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			// 	<< "\n^ - WALLJUMP: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			// 	<< "\n^ - SLIDING: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			// 	<< "\n^ - FLASHLIGHT: " << ((player_states[player_id].player_state_flags & PlayerStateFlags::JUMPED) > 0)
+			// 	<< "\n- hook_point X: " << player_states[player_id].hook_point.x
+			// 	<< "\n- hook_point Y: " << player_states[player_id].hook_point.y
+			// 	<< "\n- hook_point Z: " << player_states[player_id].hook_point.z
+			// 	<< std::endl;
+			// #endif // _HNS_DEBUG
 
-			if (player_states[player_id].position.y < 0.0) {
+			if (
+				player_states[player_id].position.y < 0.0 &&
+				std::chrono::duration<float>(
+					std::chrono::steady_clock::now() - round_transition_cooldown
+				).count() > ROUND_TRANSITION_COOLDOWN // TODO
+			) {
 				#ifdef _HNS_DEBUG
 					_DEBUG_LOG
 					<< "Player "
@@ -620,7 +633,8 @@ static inline void HandleReceive(
 				}
 				else if (
 					player_id == current_seeker_id ||
-					player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER
+					player_states[player_id].player_state_flags & PlayerStateFlags::IS_SEEKER //&&
+					//player_states[player_id].player_state_flags & PlayerStateFlags::ALIVE
 				) {
 					#ifdef _HNS_DEBUG
 						_DEBUG_LOG
@@ -721,12 +735,12 @@ static inline void HandleReceive(
                                 );
                         }
 
-			#ifdef _HNS_DEBUG
-				_DEBUG_LOG
-				<< "Retransmitting the (possibly server-modified) sync packet"
-				<< " to all other peers except the one who sent it..."
-				<< std::endl;
-			#endif // _HNS_DEBUG
+			// #ifdef _HNS_DEBUG
+			// 	_DEBUG_LOG
+			// 	<< "Retransmitting the (possibly server-modified) sync packet"
+			// 	<< " to all other peers except the one who sent it..."
+			// 	<< std::endl;
+			// #endif // _HNS_DEBUG
                 }
                 break;
 
@@ -1088,18 +1102,18 @@ try {
 
                                 case ENET_EVENT_TYPE_RECEIVE:
                                 {
-					#ifdef _HNS_DEBUG
-						char _DEBUG_ip[64] = {0};
-						enet_address_get_host_ip(
-							&event.peer->address,
-							_DEBUG_ip,
-							sizeof(_DEBUG_ip)
-						);
-						_DEBUG_LOG
-						<< "Received ENET_EVENT_TYPE_RECEIVE from "
-						<< _DEBUG_ip
-						<< std::endl;
-					#endif // _HNS_DEBUG
+					// #ifdef _HNS_DEBUG
+					// 	char _DEBUG_ip[64] = {0};
+					// 	enet_address_get_host_ip(
+					// 		&event.peer->address,
+					// 		_DEBUG_ip,
+					// 		sizeof(_DEBUG_ip)
+					// 	);
+					// 	_DEBUG_LOG
+					// 	<< "Received ENET_EVENT_TYPE_RECEIVE from "
+					// 	<< _DEBUG_ip
+					// 	<< std::endl;
+					// #endif // _HNS_DEBUG
 
                                         HandleReceive(event.peer, event.packet);
                                 }
