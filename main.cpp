@@ -180,6 +180,12 @@ static inline void HandleHiderCaughtPacket(
 	if (peer_to_player_id.find(peer) == peer_to_player_id.end()) return;
 
 
+	if (
+		(std::chrono::steady_clock::now() - round_transition_cooldown_timer).count()
+		< ROUND_TRANSITION_COOLDOWN
+	) return;
+
+
 	const PlayerID player_id = peer_to_player_id[peer];
 
 
