@@ -156,7 +156,7 @@ bool game_started = false;
 PlayerID current_seeker_id;
 std::chrono::time_point<std::chrono::steady_clock> current_seeker_timer;
 
-std::chrono::time_point<std::chrono::steady_clock> round_transition_cooldown;
+std::chrono::time_point<std::chrono::steady_clock> round_transition_cooldown_timer;
 
 #ifdef _HNS_DEBUG
 std::ofstream _DEBUG_LOG("HnSServer.log");
@@ -266,7 +266,7 @@ static inline void HandleHiderCaughtPacket(
 	if (alive_hiders_left != 0) return;
 
 
-	round_transition_cooldown = std::chrono::steady_clock::now();
+	round_transition_cooldown_timer = std::chrono::steady_clock::now();
 
 
 	// Set/calculate players stats
@@ -593,8 +593,8 @@ static inline void HandleReceive(
 			if (
 				player_states[player_id].position.y < 0.0 &&
 				std::chrono::duration<float>(
-					std::chrono::steady_clock::now() - round_transition_cooldown
-				).count() > ROUND_TRANSITION_COOLDOWN // TODO
+					std::chrono::steady_clock::now() - round_transition_cooldown_timer
+				).count() > ROUND_TRANSITION_COOLDOWN
 			) {
 				#ifdef _HNS_DEBUG
 					_DEBUG_LOG
