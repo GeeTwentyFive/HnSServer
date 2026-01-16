@@ -45,6 +45,7 @@ typedef struct {
 } Vec3;
 
 
+const uint8_t SERVER_AUTHORITY_PLAYER_STATE_FLAGS = 0b11; // TEMP FIX
 enum PlayerStateFlags : uint8_t {
 	ALIVE = 1 << 0,
 	IS_SEEKER = 1 << 1,
@@ -568,9 +569,20 @@ static inline void HandleReceive(
 
                         const PlayerID player_id = peer_to_player_id[peer];
 
+			// TEMPORARY SERVER AUTHORITY FIX
+			uint8_t previous_player_state_flags = player_states[player_id].player_state_flags;
                         player_states[player_id] = *((PlayerState*)(
 				packet->data + offsetof(PlayerSyncPacketData, player_state)
 			));
+			player_states[player_id].player_state_flags = (
+				(
+					player_states[player_id].player_state_flags &
+					~SERVER_AUTHORITY_PLAYER_STATE_FLAGS
+				) | (
+					previous_player_state_flags &
+					SERVER_AUTHORITY_PLAYER_STATE_FLAGS
+				)
+			);
 
 			// //PLAYER_SYNC
 			// #ifdef _HNS_DEBUG
