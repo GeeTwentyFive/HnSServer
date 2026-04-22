@@ -17,7 +17,6 @@
 #endif
 
 
-#define DEFAULT_MAP_FILENAME "DEFAULT_MAP.json"
 #define DEFAULT_PORT 55555
 #define MAX_PLAYERS 8
 
@@ -941,8 +940,12 @@ static inline void HandleReceive(
 
 int main(int argc, char* argv[]) {
 try {
+        if (argc < 2) {
+		std::cout << "USAGE: <PATH/TO/MAP.json> [PORT]" << std::endl;
+		return 0;
+	}
 
-	std::string map_path = (argc >= 2) ? argv[1] : (std::filesystem::path(argv[0]).parent_path() / DEFAULT_MAP_FILENAME).string();
+	std::string map_path = argv[1];
 	int port = (argc >= 3) ? std::stoi(argv[2]) : DEFAULT_PORT;
 
 	#ifdef _HNS_DEBUG
@@ -959,14 +962,7 @@ try {
 
         // Map loading, parsing, validation, & compression
 
-	std::ifstream map_file_stream;
-	map_file_stream.exceptions(std::ifstream::failbit);
-	try { map_file_stream.open(map_path); }
-	catch (const std::exception& e) {
-		std::cout << "ERROR: Failed to open default map '" DEFAULT_MAP_FILENAME "' - " << e.what() << std::endl;
-		std::cout << "USAGE: [PATH/TO/MAP.json] [PORT]" << std::endl;
-		return 1;
-	}
+	std::ifstream map_file_stream(map_path);
 	map_file_stream.seekg(0, std::ios::end);
 	map_data.reserve(map_file_stream.tellg());
 	map_file_stream.seekg(0, std::ios::beg);
